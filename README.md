@@ -69,12 +69,14 @@ replay validation is still open. [Replay validation blocker](docs/issues/ISSUE-0
 
 ## What changed
 
-- **Alt+Tab crash workaround.** [VERIFIED] The retail game crashed during
-  repeated focus switches in exclusive fullscreen. The patched game now opens
-  windowed by default, and `zh-patcher.exe play` opens it borderless. In a
-  1920×1080 ShockWave skirmish, the rebuilt engine with d3d8to9 completed 120
-  focus-switch cycles in borderless mode without crashing.
-  [Alt+Tab stress test](docs/issues/ISSUE-0011-shockwave-alt-tab-null-texture-crash.md#resolution--verification) ·
+- **Alt+Tab crash workaround.** [VERIFIED] During repeated switches out of
+  exclusive fullscreen, the retail game crashed when its renderer tried to use
+  a missing texture. [INFERRED] A graphics reset during the switch likely left
+  the texture unavailable. To avoid that fullscreen reset, the patched game
+  opens windowed by default, and `zh-patcher.exe play` opens it borderless.
+  [VERIFIED] The rebuilt engine with d3d8to9 completed 120 focus-switch cycles
+  in a borderless 1920×1080 ShockWave skirmish without crashing.
+  [Crash analysis and stress test](docs/issues/ISSUE-0011-shockwave-alt-tab-null-texture-crash.md) ·
   [Launch modes](patcher/README.md#changes-in-this-build)
 - [VERIFIED] Engine work includes faster debris collision candidate filtering, a corrected
   guard range for human-owned stock units in singleplayer, and separate skirmish simulation
