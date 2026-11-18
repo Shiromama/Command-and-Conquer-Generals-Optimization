@@ -1,0 +1,113 @@
+--- a/GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIGuard.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIGuard.cpp
+@@ -46,6 +46,9 @@
+ #include "GameLogic/AI.h"
+ #include "GameLogic/AIPathfind.h"
+ #include "GameLogic/AIGuard.h"
++#include "GameLogic/GameLogic.h"
++#include "GameLogic/Weapon.h"
++#include <cmath>
+ #include "GameLogic/Module/AIUpdate.h"
+ #include "GameLogic/Module/BodyModule.h"
+ #include "GameLogic/Module/CollideModule.h"
+@@ -200,12 +203,47 @@
+ }
+ 
+ //--------------------------------------------------------------------------------------
++// T-081: guard uses automatic combat weapons, not helper/manual-only weapon ranges.
++static Real getAutomaticGuardWeaponRange(const Object* obj)
++{
++    Real range = 0.0f;
++    const Bool locked = obj->isCurWeaponLocked();
++    const Weapon* lockedWeapon = locked ? obj->getCurrentWeapon() : nullptr;
++    for (Int i = PRIMARY_WEAPON; i < WEAPONSLOT_COUNT; ++i)
++    {
++        const WeaponSlotType slot = static_cast<WeaponSlotType>(i);
++        const Weapon* weapon = obj->getWeaponInWeaponSlot(slot);
++        if (!weapon || (locked && weapon != lockedWeapon))
++            continue;
++        if (!locked && !(obj->getWeaponInWeaponSlotCommandSourceMask(slot) & (1u << CMD_FROM_AI)))
++            continue;
++        if (!weapon->isDamageWeapon() || weapon->getAntiMask() == 0)
++            continue;
++        if (weapon->getStatus() == OUT_OF_AMMO && !weapon->getAutoReloadsClip())
++            continue;
++        const Real candidate = weapon->getAttackRange(obj); // Includes current range bonuses.
++        if (std::isfinite(candidate) && candidate > range)
++            range = candidate;
++    }
++    return range;
++}
++
+ /*static*/ Real AIGuardMachine::getStdGuardRange(const Object* obj)
+ {
+-	Real visionRange = TheAI->getAdjustedVisionRangeForObject(obj,
+-		AI_VISIONFACTOR_OWNERTYPE | AI_VISIONFACTOR_MOOD | AI_VISIONFACTOR_GUARDINNER);
+-
+-	return visionRange;
++    if (!obj || !obj->getAI() || !TheAI)
++        return 0.0f;
++    const Real guardRange = TheAI->getAdjustedVisionRangeForObject(obj,
++        AI_VISIONFACTOR_OWNERTYPE | AI_VISIONFACTOR_MOOD | AI_VISIONFACTOR_GUARDINNER);
++
++    // Built-in singleplayer fix; preserve network/replay, AI difficulty and enter/hijack behavior.
++    if (!TheGameLogic || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame()
++        || TheGameLogic->isInMultiplayerGame() || TheGameLogic->isInReplayGame()
++        || !(obj->getAI()->getMoodMatrixValue() & MM_Controller_Player)
++        || obj->getTemplate()->isEnterGuard())
++        return guardRange;
++
++    const Real weaponRange = getAutomaticGuardWeaponRange(obj);
++    return weaponRange > guardRange ? weaponRange : guardRange;
+ }
+ 
+ //--------------------------------------------------------------------------------------
+--- a/Core/GameEngine/Include/GameClient/RadiusDecal.h
++++ b/Core/GameEngine/Include/GameClient/RadiusDecal.h
+@@ -60,6 +60,7 @@
+ 	void update();
+ 	void setPosition(const Coord3D& pos);
+ 	void setOpacity( const Real o );
++	void setRadius(Real radius); // T-081: resize a live guard preview without recreating its decal.
+ };
+ 
+ // ------------------------------------------------------------------------------------------------
+--- a/Core/GameEngine/Source/GameClient/RadiusDecal.cpp
++++ b/Core/GameEngine/Source/GameClient/RadiusDecal.cpp
+@@ -227,3 +227,13 @@
+ 		m_decal->setPosition(pos.x, pos.y, pos.z);	//world space position of center of decal
+ 	}
+ }
++
++// T-081: the decal dimensions are diameters, matching createRadiusDecal.
++void RadiusDecal::setRadius(Real radius)
++{
++    if (m_decal)
++    {
++        const Real diameter = radius > 0.0f ? radius * 2.0f : 0.0f;
++        m_decal->setSize(diameter, diameter);
++    }
++}
+--- a/GeneralsMD/Code/GameEngine/Source/GameClient/InGameUI.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameClient/InGameUI.cpp
+@@ -1396,8 +1396,18 @@
+ //-------------------------------------------------------------------------------------------------
+ void InGameUI::setRadiusCursor(RadiusCursorType cursorType, const SpecialPowerTemplate* specPowTempl, WeaponSlotType weaponSlot)
+ {
+-	if (cursorType == m_curRcType)
+-		return;
++    if (cursorType == m_curRcType)
++    {
++        // T-081: weapon switches/upgrades can change range while the guard preview is active.
++        if (cursorType == RADIUSCURSOR_GUARD_AREA)
++        {
++            const Drawable* draw = getFirstSelectedDrawable();
++            const Object* selected = draw ? draw->getObject() : nullptr;
++            if (selected)
++                m_curRadiusCursor.setRadius(AIGuardMachine::getStdGuardRange(selected));
++        }
++        return;
++    }
+ 
+ 	m_curRadiusCursor.clear();
+ 	m_curRcType = RADIUSCURSOR_NONE;

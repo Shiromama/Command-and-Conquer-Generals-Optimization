@@ -1,0 +1,3728 @@
+diff --git a/Core/GameEngine/Include/Common/OptimizationPolicy.h b/Core/GameEngine/Include/Common/OptimizationPolicy.h
+new file mode 100644
+index 0000000..ccd1eb0
+--- /dev/null
++++ b/Core/GameEngine/Include/Common/OptimizationPolicy.h
+@@ -0,0 +1,28 @@
++// T-079: small, dependency-free policy shared by settings, startup and regression tests.
++#pragma once
++#include <cstring>
++#include <cctype>
++namespace zh {
++inline bool tokenEquals(const char *a, const char *b)
++{
++    if (!a) return false;
++    while (*a && *b) {
++        if (std::tolower(static_cast<unsigned char>(*a++)) != *b++) return false;
++    }
++    return *a == *b;
++}
++inline bool parseBoolean(const char *value, bool fallback)
++{
++    if (tokenEquals(value, "yes") || tokenEquals(value, "true") || tokenEquals(value, "1")) return true;
++    if (tokenEquals(value, "no") || tokenEquals(value, "false") || tokenEquals(value, "0")) return false;
++    return fallback;
++}
++inline bool experimentalSimulationAllowed(bool requested, bool multiplayer, bool replay)
++{
++    return requested && !multiplayer && !replay;
++}
++inline bool startupFpsLimit(bool preference, const char *uncappedEnv, bool uncappedCommandLine)
++{
++    return uncappedCommandLine ? false : (uncappedEnv ? !parseBoolean(uncappedEnv, false) : preference);
++}
++} // namespace zh
+diff --git a/Core/GameEngine/Include/Common/OptionPreferences.h b/Core/GameEngine/Include/Common/OptionPreferences.h
+index 85aba42..d12ee9c 100644
+--- a/Core/GameEngine/Include/Common/OptionPreferences.h
++++ b/Core/GameEngine/Include/Common/OptionPreferences.h
+@@ -114,6 +114,10 @@ public:
+ 	Bool getUseHeatEffects();
+ 	Bool getDynamicLODEnabled();
+ 	Bool getFPSLimitEnabled();
++	// PROJECT PATCH (T-064): user-facing optimisation settings stored in Options.ini (0 = off).
++	Int getDrawDistance();
++	Int getShadowScreenRadius();
++	Bool getDebrisBroadphaseEnabled();
+ 	Bool getBuildingOcclusionEnabled();
+ 	Int getParticleCap();
+ 
+diff --git a/Core/GameEngine/Include/Common/PathfindHeap.h b/Core/GameEngine/Include/Common/PathfindHeap.h
+new file mode 100644
+index 0000000..8241057
+--- /dev/null
++++ b/Core/GameEngine/Include/Common/PathfindHeap.h
+@@ -0,0 +1,63 @@
++// T-022 experimental indexed open queue. Request-local, stable FIFO cost ties.
++#pragma once
++#include <algorithm>
++#include <cstdint>
++#include <limits>
++#include <memory>
++#include <vector>
++namespace zhpf {
++struct HeapContext {
++    static constexpr unsigned absent=std::numeric_limits<unsigned>::max(),capacity=65536;
++    struct Entry {void *key=nullptr;unsigned epoch=0,position=absent;};
++    struct Node {void *cell;unsigned cost;uint64_t sequence;};
++    std::vector<Entry> table;
++    std::vector<Node> nodes;
++    std::vector<void*> ordered;
++    void *list=nullptr;
++    unsigned epoch=0;
++    uint64_t sequence=0;
++    bool legacy=false;
++    void begin(){
++        if(table.empty()){table.resize(capacity);nodes.reserve(5001);ordered.reserve(5001);}
++        if(++epoch==0){for(auto &e:table)e.epoch=0;++epoch;}
++        nodes.clear();ordered.clear();list=nullptr;sequence=0;legacy=false;
++    }
++    Entry &entry(void *key){
++        unsigned slot=static_cast<unsigned>((reinterpret_cast<std::uintptr_t>(key)>>4)*2654435761u)&(capacity-1);
++        for(;;){Entry &e=table[slot];if(e.epoch!=epoch){e.key=key;e.epoch=epoch;e.position=absent;return e;}
++            if(e.key==key)return e;slot=(slot+1)&(capacity-1);}
++    }
++    bool less(unsigned a,unsigned b)const{return nodes[a].cost<nodes[b].cost||(nodes[a].cost==nodes[b].cost&&nodes[a].sequence<nodes[b].sequence);}
++    void swapAt(unsigned a,unsigned b){std::swap(nodes[a],nodes[b]);entry(nodes[a].cell).position=a;entry(nodes[b].cell).position=b;}
++    void up(unsigned p){while(p){unsigned parent=(p-1)/2;if(!less(p,parent))break;swapAt(p,parent);p=parent;}}
++    void down(unsigned p){for(;;){unsigned child=2*p+1;if(child>=nodes.size())return;
++        if(child+1<nodes.size()&&less(child+1,child))++child;if(!less(child,p))return;swapAt(child,p);p=child;}}
++    void insert(void *cell,unsigned cost){Entry &e=entry(cell);e.position=static_cast<unsigned>(nodes.size());nodes.push_back({cell,cost,sequence++});up(e.position);}
++    void remove(void *cell){unsigned p=entry(cell).position;entry(cell).position=absent;
++        if(p==nodes.size()-1){nodes.pop_back();return;}
++        nodes[p]=nodes.back();nodes.pop_back();entry(nodes[p].cell).position=p;
++        if(p&&less(p,(p-1)/2))up(p);else down(p);
++    }
++    void *top()const{return nodes.empty()?nullptr:nodes[0].cell;}
++    void sortForCleanup(){ordered.clear();while(!nodes.empty()){void *cell=top();ordered.push_back(cell);remove(cell);}legacy=true;}
++};
++inline HeapContext *activeHeap=nullptr;
++inline unsigned heapDepth=0;
++inline std::vector<std::unique_ptr<HeapContext>> heapContexts;
++struct HeapScope {
++    HeapContext *previous;
++    bool enabled;
++    explicit HeapScope(bool requested):previous(activeHeap),enabled(requested){
++        activeHeap=nullptr;
++        if(enabled){if(heapContexts.size()<=heapDepth)heapContexts.emplace_back(std::make_unique<HeapContext>());
++            activeHeap=heapContexts[heapDepth++].get();activeHeap->begin();}
++    }
++    ~HeapScope(){if(enabled)--heapDepth;activeHeap=previous;}
++};
++inline HeapContext *heapFor(void *list,bool bind=false){
++    if(!activeHeap||activeHeap->legacy)return nullptr;
++    if(bind&&!activeHeap->list)activeHeap->list=list;
++    return activeHeap->list==list?activeHeap:nullptr;
++}
++inline void seedHeap(void *cell,unsigned cost,void *list){if(auto *heap=heapFor(list,true))heap->insert(cell,cost);}
++}
+diff --git a/Core/GameEngine/Include/Common/PathfindTelemetry.h b/Core/GameEngine/Include/Common/PathfindTelemetry.h
+new file mode 100644
+index 0000000..682f110
+--- /dev/null
++++ b/Core/GameEngine/Include/Common/PathfindTelemetry.h
+@@ -0,0 +1,26 @@
++// T-022: inert request counters. No cell/list layout or simulation state changes.
++#pragma once
++#include <cstdint>
++#include <cstdio>
++#include <initializer_list>
++namespace zhpf {
++struct Counters {
++    unsigned request=0;
++    unsigned pushes=0, removes=0, expansions=0, open=0, maxOpen=0;
++    uint64_t expansionHash=14695981039346656037ull;
++};
++inline Counters *active=nullptr;
++inline FILE *operationLog=nullptr;
++inline void operation(char op,std::uintptr_t cell,unsigned cost) {
++    if(operationLog && active) fprintf(operationLog,"%u,%c,%llu,%u\n",active->request,op,static_cast<unsigned long long>(cell),cost);
++}
++inline void push(std::uintptr_t cell=0,unsigned cost=0) { if(active) { operation('I',cell,cost); ++active->pushes; if(++active->open>active->maxOpen) active->maxOpen=active->open; } }
++inline void remove(std::uintptr_t cell=0) { if(active) { operation('R',cell,0); ++active->removes; if(active->open) --active->open; } }
++inline void expand(unsigned x, unsigned y, unsigned layer,std::uintptr_t cell=0) {
++    if(active) {
++        operation('H',cell,0);
++        ++active->expansions;
++        for(unsigned v : {x,y,layer}) { active->expansionHash^=v; active->expansionHash*=1099511628211ull; }
++    }
++}
++}
+diff --git a/Core/GameEngine/Include/GameLogic/Pathfinder/PathfindCell.h b/Core/GameEngine/Include/GameLogic/Pathfinder/PathfindCell.h
+index 6986ca6..1f23992 100644
+--- a/Core/GameEngine/Include/GameLogic/Pathfinder/PathfindCell.h
++++ b/Core/GameEngine/Include/GameLogic/Pathfinder/PathfindCell.h
+@@ -174,6 +174,7 @@ public:
+ 	static Bool groundCliff(const PathfindCell& targetCell, const PathfindCell& sourceCell);
+ 
+ private:
++    static void prepareHeapList(PathfindCellList &list); // T-022: preserve sorted release order.
+ 	PathfindCellInfo *m_info;
+ 	ObjectID m_obstacleID;	                  ///< the object ID who overlaps this cell
+ 	UnsignedInt m_blockedByAlly : 1;          ///< True if this cell is blocked by an allied unit.
+diff --git a/Core/GameEngine/Source/Common/CommandLine.cpp b/Core/GameEngine/Source/Common/CommandLine.cpp
+index cd266aa..a32455b 100644
+--- a/Core/GameEngine/Source/Common/CommandLine.cpp
++++ b/Core/GameEngine/Source/Common/CommandLine.cpp
+@@ -1051,10 +1051,13 @@ Int parseIgnoreStackTrace(char *args[], int num)
+ }
+ #endif
+ 
++Bool g_zhStartupUncappedFps = false;
++
+ Int parseNoFPSLimit(char *args[], int num)
+ {
+ 	TheWritableGlobalData->m_useFpsLimit = false;
+-	TheWritableGlobalData->m_framesPerSecondLimit = 30000;
++	// T-079: apply once after INI loading, then allow live UI/hotkeys to change it.
++	g_zhStartupUncappedFps = true;
+ 
+ 	return 1;
+ }
+diff --git a/Core/GameEngine/Source/Common/OptionPreferences.cpp b/Core/GameEngine/Source/Common/OptionPreferences.cpp
+index e681ef8..8516283 100644
+--- a/Core/GameEngine/Source/Common/OptionPreferences.cpp
++++ b/Core/GameEngine/Source/Common/OptionPreferences.cpp
+@@ -29,7 +29,8 @@
+ ///////////////////////////////////////////////////////////////////////////////////////
+ 
+ // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
+-#include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
++#include "PreRTS.h"
++#include "Common/OptimizationPolicy.h"	// This must go first in EVERY cpp file in the GameEngine
+ 
+ #include "Common/AudioSettings.h"
+ #include "Common/GameAudio.h"
+@@ -662,11 +663,40 @@ Bool OptionPreferences::getDynamicLODEnabled()
+ 	return FALSE;
+ }
+ 
++
++// PROJECT PATCH (T-064): optimisation settings, read from Options.ini.
++// Numeric keys accept 0 to disable; booleans accept yes/no.
++Int OptionPreferences::getDrawDistance()
++{
++	OptionPreferences::const_iterator it = find("DrawDistance");
++	if (it == end())
++		return 0;  // OFF by default: this cull hides distant units (EXP-002), so it stays opt-in.
++	Int value = atoi(it->second.str());
++	return value < 0 ? 0 : value;
++}
++
++Int OptionPreferences::getShadowScreenRadius()
++{
++	OptionPreferences::const_iterator it = find("ShadowScreenRadius");
++	if (it == end())
++		return 120;
++	Int value = atoi(it->second.str());
++	return value < 0 ? 0 : value;
++}
++
++Bool OptionPreferences::getDebrisBroadphaseEnabled()
++{
++	OptionPreferences::const_iterator it = find("DebrisBroadphase");
++	if (it == end())
++		return FALSE; // T-079: simulation-changing broadphase requires explicit opt-in.
++	return zh::parseBoolean(it->second.str(), false);
++}
++
+ Bool OptionPreferences::getFPSLimitEnabled()
+ {
+ 	OptionPreferences::const_iterator it = find("FPSLimit");
+ 	if (it == end())
+-		return TheGlobalData->m_useFpsLimit;
++		return FALSE;	// T-064: absent key means uncapped (our default); FPSLimit=yes caps at 30
+ 
+ 	if (stricmp(it->second.str(), "yes") == 0) {
+ 		return TRUE;
+diff --git a/Core/GameEngine/Source/Common/System/AsciiString.cpp b/Core/GameEngine/Source/Common/System/AsciiString.cpp
+index ca53aed..6eaf566 100644
+--- a/Core/GameEngine/Source/Common/System/AsciiString.cpp
++++ b/Core/GameEngine/Source/Common/System/AsciiString.cpp
+@@ -46,6 +46,7 @@
+ 
+ #include "Common/CriticalSection.h"
+ #include "WWLib/utf8.h"
++#include "WWLib/ZhLockStats.h"	// PROJECT PATCH (T-068)
+ 
+ 
+ // -----------------------------------------------------
+@@ -121,6 +122,7 @@ static StringCaseInfo getStringCaseInfo(const char *str)
+ // -----------------------------------------------------
+ AsciiString::AsciiString(const AsciiString& stringSrc) : m_data(stringSrc.m_data)
+ {
++	ZhLockTimer zhLockTimer((zhStringLockTotals()));	// PROJECT PATCH (T-068)
+ 	ScopedCriticalSection scopedCriticalSection(TheAsciiStringCriticalSection);
+ 	if (m_data)
+ 		++m_data->m_refCount;
+@@ -214,6 +216,7 @@ void AsciiString::ensureUniqueBufferOfSize(int numCharsNeeded, Bool preserveData
+ // -----------------------------------------------------
+ void AsciiString::releaseBuffer()
+ {
++	ZhLockTimer zhLockTimer((zhStringLockTotals()));	// PROJECT PATCH (T-068)
+ 	ScopedCriticalSection scopedCriticalSection(TheAsciiStringCriticalSection);
+ 
+ 	validate();
+@@ -253,6 +256,7 @@ AsciiString::AsciiString(const char* s, int len) : m_data(nullptr)
+ // -----------------------------------------------------
+ void AsciiString::set(const AsciiString& stringSrc)
+ {
++	ZhLockTimer zhLockTimer((zhStringLockTotals()));	// PROJECT PATCH (T-068)
+ 	ScopedCriticalSection scopedCriticalSection(TheAsciiStringCriticalSection);
+ 
+ 	validate();
+diff --git a/Core/GameEngine/Source/GameLogic/AI/AIPathfind.cpp b/Core/GameEngine/Source/GameLogic/AI/AIPathfind.cpp
+index 20c04c6..64a35dd 100644
+--- a/Core/GameEngine/Source/GameLogic/AI/AIPathfind.cpp
++++ b/Core/GameEngine/Source/GameLogic/AI/AIPathfind.cpp
+@@ -76,6 +76,8 @@
+ //-------------------------------------------------------------------------------------------------
+ 
+ 
++#include "PathfindTelemetry.inc"
++
+ static inline Bool IS_IMPASSABLE(PathfindCell::CellType type) {
+ 	// Return true if cell is impassable to ground units. jba. [8/18/2003]
+ 	if (type==PathfindCell::CELL_IMPASSABLE) {
+@@ -2650,6 +2652,8 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
+ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from,
+ 													 const Coord3D *rawTo)
+ {
++    zhpf::Trace zhTrace("internalFindPath",obj,from,rawTo);
++    return zhTrace.finish([&]() -> Path * {
+ 	//CRCDEBUG_LOG(("Pathfinder::findPath()"));
+ #ifdef INTENSE_DEBUG
+ 	DEBUG_LOG(("internal find path..."));
+@@ -2788,6 +2792,8 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
+ #if RETAIL_COMPATIBLE_PATHFINDING
+ 	if (!s_useFixedPathfinding) {
+ 		m_openList.reset(parentCell);
++        zhpf::push(reinterpret_cast<std::uintptr_t>(parentCell),parentCell->getTotalCost()); // T-022: retail seed bypasses sorted insertion.
++        zhpf::seedHeap(parentCell,parentCell->getTotalCost(),&m_openList);
+ 	}
+ 	else
+ #endif
+@@ -2809,6 +2815,7 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
+ 	{
+ 		// take head cell off of open list - it has lowest estimated total path cost
+ 		parentCell = m_openList.getHead();
++        zhpf::expand(parentCell->getXIndex(),parentCell->getYIndex(),parentCell->getLayer(),reinterpret_cast<std::uintptr_t>(parentCell));
+ 		parentCell->removeFromOpenList(m_openList);
+ 
+ 		if (parentCell == goalCell)
+@@ -2937,6 +2944,8 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
+ 		goalCell->releaseInfo();
+ 	}
+ 	return nullptr;
++
++    }());
+ }
+ 
+ /**
+@@ -3230,6 +3239,8 @@ struct GroundCellsStruct
+ Path *Pathfinder::findGroundPath( const Coord3D *from,
+ 													 const Coord3D *rawTo, Int pathDiameter, Bool crusher)
+ {
++    zhpf::Trace zhTrace("findGroundPath",nullptr,from,rawTo);
++    return zhTrace.finish([&]() -> Path * {
+ 	//CRCDEBUG_LOG(("Pathfinder::findGroundPath()"));
+ #ifdef DEBUG_LOGGING
+ 	Int startTimeMS = ::GetTickCount();
+@@ -3349,6 +3360,8 @@ Path *Pathfinder::findGroundPath( const Coord3D *from,
+ #if RETAIL_COMPATIBLE_PATHFINDING
+ 	if (!s_useFixedPathfinding) {
+ 		m_openList.reset(parentCell);
++        zhpf::push(reinterpret_cast<std::uintptr_t>(parentCell),parentCell->getTotalCost()); // T-022: retail seed bypasses sorted insertion.
++        zhpf::seedHeap(parentCell,parentCell->getTotalCost(),&m_openList);
+ 	}
+ 	else
+ #endif
+@@ -3374,6 +3387,7 @@ Path *Pathfinder::findGroundPath( const Coord3D *from,
+ 	{
+ 		// take head cell off of open list - it has lowest estimated total path cost
+ 		parentCell = m_openList.getHead();
++        zhpf::expand(parentCell->getXIndex(),parentCell->getYIndex(),parentCell->getLayer(),reinterpret_cast<std::uintptr_t>(parentCell));
+ 		parentCell->removeFromOpenList(m_openList);
+ 
+ 		if (parentCell == goalCell)
+@@ -3617,6 +3631,8 @@ Path *Pathfinder::findGroundPath( const Coord3D *from,
+ 		goalCell->releaseInfo();
+ 	}
+ 	return nullptr;
++
++    }());
+ }
+ 
+ /**
+@@ -3747,6 +3763,8 @@ Path *Pathfinder::findClosestHierarchicalPath( Bool isHuman, const LocomotorSet&
+ Path *Pathfinder::internal_findHierarchicalPath( Bool isHuman, const LocomotorSurfaceTypeMask locomotorSurface, const Coord3D *from,
+ 													 const Coord3D *rawTo, Bool crusher, Bool closestOK)
+ {
++    zhpf::Trace zhTrace("internal_findHierarchicalPath",nullptr,from,rawTo);
++    return zhTrace.finish([&]() -> Path * {
+ 	//CRCDEBUG_LOG(("Pathfinder::findGroundPath()"));
+ #ifdef DEBUG_LOGGING
+ 	Int startTimeMS = ::GetTickCount();
+@@ -3835,6 +3853,8 @@ Path *Pathfinder::internal_findHierarchicalPath( Bool isHuman, const LocomotorSu
+ #if RETAIL_COMPATIBLE_PATHFINDING
+ 	if (!s_useFixedPathfinding) {
+ 		m_openList.reset(parentCell);
++        zhpf::push(reinterpret_cast<std::uintptr_t>(parentCell),parentCell->getTotalCost()); // T-022: retail seed bypasses sorted insertion.
++        zhpf::seedHeap(parentCell,parentCell->getTotalCost(),&m_openList);
+ 	}
+ 	else
+ #endif
+@@ -3920,6 +3940,7 @@ Path *Pathfinder::internal_findHierarchicalPath( Bool isHuman, const LocomotorSu
+ 	{
+ 		// take head cell off of open list - it has lowest estimated total path cost
+ 		parentCell = m_openList.getHead();
++        zhpf::expand(parentCell->getXIndex(),parentCell->getYIndex(),parentCell->getLayer(),reinterpret_cast<std::uintptr_t>(parentCell));
+ 		parentCell->removeFromOpenList(m_openList);
+ 
+ 		zoneStorageType parentZone;
+@@ -4314,6 +4335,8 @@ Path *Pathfinder::internal_findHierarchicalPath( Bool isHuman, const LocomotorSu
+ 	}
+ 
+ 	return nullptr;
++
++    }());
+ }
+ 
+ 
+@@ -4850,6 +4873,8 @@ Int Pathfinder::checkPathCost(Object *obj, const LocomotorSet& locomotorSet, con
+ Path *Pathfinder::findClosestPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from,
+ 																	Coord3D *rawTo, Bool blocked, Real pathCostMultiplier, Bool moveAllies)
+ {
++    zhpf::Trace zhTrace("findClosestPath",obj,from,rawTo);
++    return zhTrace.finish([&]() -> Path * {
+ 	//CRCDEBUG_LOG(("Pathfinder::findClosestPath()"));
+ #ifdef DEBUG_LOGGING
+ 	Int startTimeMS = ::GetTickCount();
+@@ -4992,6 +5017,8 @@ Path *Pathfinder::findClosestPath( Object *obj, const LocomotorSet& locomotorSet
+ #if RETAIL_COMPATIBLE_PATHFINDING
+ 	if (!s_useFixedPathfinding) {
+ 		m_openList.reset(parentCell);
++        zhpf::push(reinterpret_cast<std::uintptr_t>(parentCell),parentCell->getTotalCost()); // T-022: retail seed bypasses sorted insertion.
++        zhpf::seedHeap(parentCell,parentCell->getTotalCost(),&m_openList);
+ 	}
+ 	else
+ #endif
+@@ -5015,6 +5042,7 @@ Path *Pathfinder::findClosestPath( Object *obj, const LocomotorSet& locomotorSet
+ 		Real distSqr;
+ 		// take head cell off of open list - it has lowest estimated total path cost
+ 		parentCell = m_openList.getHead();
++        zhpf::expand(parentCell->getXIndex(),parentCell->getYIndex(),parentCell->getLayer(),reinterpret_cast<std::uintptr_t>(parentCell));
+ 		parentCell->removeFromOpenList(m_openList);
+ 
+ 		if (parentCell == goalCell)
+@@ -5193,6 +5221,8 @@ Path *Pathfinder::findClosestPath( Object *obj, const LocomotorSet& locomotorSet
+ 		goalCell->releaseInfo();
+ 	}
+ 	return nullptr;
++
++    }());
+ }
+ 
+ 
+@@ -6499,6 +6529,8 @@ if (g_UT_startTiming) return false;
+ Path *Pathfinder::getMoveAwayFromPath(Object* obj, Object *otherObj,
+ 											Path *pathToAvoid, Object *otherObj2, Path *pathToAvoid2)
+ {
++    zhpf::Trace zhTrace("getMoveAwayFromPath",obj,obj->getPosition(),otherObj?otherObj->getPosition():nullptr);
++    return zhTrace.finish([&]() -> Path * {
+ 	if (!m_isMapReady)
+ 		return nullptr; // Should always be ok.
+ 
+@@ -6565,6 +6597,8 @@ Path *Pathfinder::getMoveAwayFromPath(Object* obj, Object *otherObj,
+ #if RETAIL_COMPATIBLE_PATHFINDING
+ 	if (!s_useFixedPathfinding) {
+ 		m_openList.reset(parentCell);
++        zhpf::push(reinterpret_cast<std::uintptr_t>(parentCell),parentCell->getTotalCost()); // T-022: retail seed bypasses sorted insertion.
++        zhpf::seedHeap(parentCell,parentCell->getTotalCost(),&m_openList);
+ 	}
+ 	else
+ #endif
+@@ -6590,6 +6624,7 @@ Path *Pathfinder::getMoveAwayFromPath(Object* obj, Object *otherObj,
+ 	{
+ 		// take head cell off of open list - it has lowest estimated total path cost
+ 		parentCell = m_openList.getHead();
++        zhpf::expand(parentCell->getXIndex(),parentCell->getYIndex(),parentCell->getLayer(),reinterpret_cast<std::uintptr_t>(parentCell));
+ 		parentCell->removeFromOpenList(m_openList);
+ 
+ 		Region2D bounds;
+@@ -6680,6 +6715,8 @@ Path *Pathfinder::getMoveAwayFromPath(Object* obj, Object *otherObj,
+ 		parentCell->releaseInfo();
+ 	}
+ 	return nullptr;
++
++    }());
+ }
+ 
+ 
+@@ -6688,6 +6725,8 @@ Path *Pathfinder::getMoveAwayFromPath(Object* obj, Object *otherObj,
+ Path *Pathfinder::patchPath( const Object *obj, const LocomotorSet& locomotorSet,
+ 		Path *originalPath, Bool blocked )
+ {
++    zhpf::Trace zhTrace("patchPath",obj,obj->getPosition(),nullptr);
++    return zhTrace.finish([&]() -> Path * {
+ 	//CRCDEBUG_LOG(("Pathfinder::patchPath()"));
+ #ifdef DEBUG_LOGGING
+ 	Int startTimeMS = ::GetTickCount();
+@@ -6737,6 +6776,8 @@ Path *Pathfinder::patchPath( const Object *obj, const LocomotorSet& locomotorSet
+ #if RETAIL_COMPATIBLE_PATHFINDING
+ 	if (!s_useFixedPathfinding) {
+ 		m_openList.reset(parentCell);
++        zhpf::push(reinterpret_cast<std::uintptr_t>(parentCell),parentCell->getTotalCost()); // T-022: retail seed bypasses sorted insertion.
++        zhpf::seedHeap(parentCell,parentCell->getTotalCost(),&m_openList);
+ 	}
+ 	else
+ #endif
+@@ -6831,6 +6872,7 @@ Path *Pathfinder::patchPath( const Object *obj, const LocomotorSet& locomotorSet
+ 	{
+ 		// take head cell off of open list - it has lowest estimated total path cost
+ 		parentCell = m_openList.getHead();
++        zhpf::expand(parentCell->getXIndex(),parentCell->getYIndex(),parentCell->getLayer(),reinterpret_cast<std::uintptr_t>(parentCell));
+ 		parentCell->removeFromOpenList(m_openList);
+ 
+ 		Coord3D cellCenter;
+@@ -6910,6 +6952,8 @@ Path *Pathfinder::patchPath( const Object *obj, const LocomotorSet& locomotorSet
+ 		candidateGoal->releaseInfo();
+ 	}
+ 	return nullptr;
++
++    }());
+ }
+ 
+ 
+@@ -6917,6 +6961,8 @@ Path *Pathfinder::patchPath( const Object *obj, const LocomotorSet& locomotorSet
+ Path *Pathfinder::findAttackPath( const Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from,
+ 		const Object *victim, const Coord3D* victimPos, const Weapon *weapon )
+ {
++    zhpf::Trace zhTrace("findAttackPath",obj,from,victimPos);
++    return zhTrace.finish([&]() -> Path * {
+ 	if (!m_isMapReady)
+ 		return nullptr; // Should always be ok.
+ 
+@@ -7031,6 +7077,8 @@ Path *Pathfinder::findAttackPath( const Object *obj, const LocomotorSet& locomot
+ #if RETAIL_COMPATIBLE_PATHFINDING
+ 	if (!s_useFixedPathfinding) {
+ 		m_openList.reset(parentCell);
++        zhpf::push(reinterpret_cast<std::uintptr_t>(parentCell),parentCell->getTotalCost()); // T-022: retail seed bypasses sorted insertion.
++        zhpf::seedHeap(parentCell,parentCell->getTotalCost(),&m_openList);
+ 	}
+ 	else
+ #endif
+@@ -7061,6 +7109,7 @@ Path *Pathfinder::findAttackPath( const Object *obj, const LocomotorSet& locomot
+ 	{
+ 		// take head cell off of open list - it has lowest estimated total path cost
+ 		parentCell = m_openList.getHead();
++        zhpf::expand(parentCell->getXIndex(),parentCell->getYIndex(),parentCell->getLayer(),reinterpret_cast<std::uintptr_t>(parentCell));
+ 		parentCell->removeFromOpenList(m_openList);
+ 
+ 		Coord3D cellCenter;
+@@ -7270,12 +7319,16 @@ Path *Pathfinder::findAttackPath( const Object *obj, const LocomotorSet& locomot
+ 		goalCell->releaseInfo();
+ 	}
+ 	return nullptr;
++
++    }());
+ }
+ 
+ /** Find a short, valid path to a location that is safe from the repulsors.  */
+ Path *Pathfinder::findSafePath( const Object *obj, const LocomotorSet& locomotorSet,
+ 		const Coord3D *from, const Coord3D* repulsorPos1, const Coord3D* repulsorPos2, Real repulsorRadius)
+ {
++    zhpf::Trace zhTrace("findSafePath",obj,from,repulsorPos1);
++    return zhTrace.finish([&]() -> Path * {
+ 	//CRCDEBUG_LOG(("Pathfinder::findSafePath()"));
+ 	if (m_isMapReady == false) return nullptr; // Should always be ok.
+ #if defined(RTS_DEBUG)
+@@ -7316,6 +7369,8 @@ Path *Pathfinder::findSafePath( const Object *obj, const LocomotorSet& locomotor
+ #if RETAIL_COMPATIBLE_PATHFINDING
+ 	if (!s_useFixedPathfinding) {
+ 		m_openList.reset(parentCell);
++        zhpf::push(reinterpret_cast<std::uintptr_t>(parentCell),parentCell->getTotalCost()); // T-022: retail seed bypasses sorted insertion.
++        zhpf::seedHeap(parentCell,parentCell->getTotalCost(),&m_openList);
+ 	}
+ 	else
+ #endif
+@@ -7338,6 +7393,7 @@ Path *Pathfinder::findSafePath( const Object *obj, const LocomotorSet& locomotor
+ 	{
+ 		// take head cell off of open list - it has lowest estimated total path cost
+ 		parentCell = m_openList.getHead();
++        zhpf::expand(parentCell->getXIndex(),parentCell->getYIndex(),parentCell->getLayer(),reinterpret_cast<std::uintptr_t>(parentCell));
+ 		parentCell->removeFromOpenList(m_openList);
+ 
+ 		Coord3D cellCenter;
+@@ -7454,6 +7510,8 @@ Path *Pathfinder::findSafePath( const Object *obj, const LocomotorSet& locomotor
+ 		parentCell->releaseInfo();
+ 	}
+ 	return nullptr;
++
++    }());
+ }
+ 
+ //-----------------------------------------------------------------------------
+@@ -7524,3 +7582,6 @@ void Pathfinder::loadPostProcess()
+ {
+ 
+ }
++
++// T-022: called after all simulation work.
++void zhPathfindFlushFrame(unsigned frame,long long updateTicks) { zhpf::flushFrame(frame,updateTicks); }
+diff --git a/Core/GameEngine/Source/GameLogic/AI/PathfindTelemetry.inc b/Core/GameEngine/Source/GameLogic/AI/PathfindTelemetry.inc
+new file mode 100644
+index 0000000..3b78f86
+--- /dev/null
++++ b/Core/GameEngine/Source/GameLogic/AI/PathfindTelemetry.inc
+@@ -0,0 +1,101 @@
++// T-022: included only by AIPathfind.cpp, after engine headers.
++#include "Common/PathfindTelemetry.h"
++#include "Common/PathfindHeap.h"
++#include "Common/OptimizationPolicy.h"
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++namespace zhpf {
++inline FILE *requestLog=nullptr, *frameLog=nullptr;
++inline bool initialized=false;
++inline LARGE_INTEGER frequency;
++inline unsigned nextRequest=0;
++inline unsigned requests=0, expansionsTotal=0, peakOpen=0;
++inline double totalUs=0, maxUs=0;
++inline bool allowed() {
++    return TheGameLogic && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame()
++        && !TheGameLogic->isInMultiplayerGame() && !TheGameLogic->isInReplayGame();
++}
++inline bool heapAllowed() {
++    if (!allowed())
++        return false;
++    // T-022/T-035 follow-up: the stable heap is the default for singleplayer pathfinding.
++    // allowed() already excludes multiplayer and replays, where the retail List stays in use.
++    // ZH_PF_HEAP=0 (or any invalid token) restores List for tests and troubleshooting.
++    const char *env = getenv("ZH_PF_HEAP");
++    if (env)
++        return zh::parseBoolean(env, false);
++    return true;
++}
++inline void init() {
++    if(initialized) return;
++    initialized=true;
++    QueryPerformanceFrequency(&frequency);
++    const char *p=getenv("ZH_PF_LOG"); if(p && *p) requestLog=fopen(p,"w");
++    p=getenv("ZH_PF_FRAME"); if(p && *p) frameLog=fopen(p,"w");
++    p=getenv("ZH_PF_OPS"); if(p && *p) operationLog=fopen(p,"w");
++    if(operationLog) fprintf(operationLog,"request,op,cell,cost\n");
++    if(requestLog) fprintf(requestLog,"frame,kind,object,fromX,fromY,toX,toY,found,expansions,pushes,removes,maxOpen,pathLen,usec,fallback,expansionHash,pathHash\n");
++    if(requestLog) fprintf(requestLog,"# queue=%s\n",heapAllowed()?"heap":"list");
++    if(frameLog) fprintf(frameLog,"frame,requests,usec_total,usec_max,expansions_total,cmax_open,update_usec\n");
++}
++inline void flushFrame(unsigned frame,long long updateTicks) {
++    if(!initialized && allowed() && getenv("ZH_PF_FRAME")) init();
++    if(!initialized) return;
++    if(frameLog && allowed()) {
++        fprintf(frameLog,"%u,%u,%.3f,%.3f,%u,%u,%.3f\n",frame,requests,totalUs,maxUs,expansionsTotal,peakOpen,updateTicks*1000000.0/frequency.QuadPart);
++        fflush(frameLog);
++    }
++    if(requestLog) fflush(requestLog);
++    if(operationLog) fflush(operationLog);
++    requests=expansionsTotal=peakOpen=0; totalUs=maxUs=0;
++}
++struct Trace {
++    HeapScope heap;
++    Counters counters;
++    Counters *previous=nullptr;
++    const char *kind;
++    unsigned object=0, frame=0;
++    Coord3D from{}, to{};
++    LARGE_INTEGER start{};
++    bool enabled=false, fallback=false;
++    Trace(const char *k, const Object *obj, const Coord3D *f, const Coord3D *t):heap(heapAllowed()),kind(k) {
++        // Avoid QPC, file opens and list scans on normal runs and in network/replay modes.
++        if(!allowed() || (!getenv("ZH_PF_LOG") && !getenv("ZH_PF_FRAME") && !getenv("ZH_PF_OPS"))) return;
++        init(); enabled=requestLog || frameLog || operationLog; if(!enabled) return;
++        object=obj?obj->getID():0; frame=TheGameLogic->getFrame();
++        if(f) from=*f; if(t) to=*t;
++#if RETAIL_COMPATIBLE_PATHFINDING
++        fallback=!s_useFixedPathfinding;
++#endif
++        counters.request=++nextRequest;
++        previous=active; active=&counters;
++        operation('B',0,fallback?1:0);
++        QueryPerformanceCounter(&start);
++    }
++    Path *finish(Path *path) {
++        if(!enabled) return path;
++        LARGE_INTEGER end; QueryPerformanceCounter(&end);
++        const double us=(end.QuadPart-start.QuadPart)*1000000.0/frequency.QuadPart;
++        unsigned length=0; uint64_t hash=14695981039346656037ull;
++        if(path) for(PathNode *node=path->getFirstNode();node;node=node->getNext()) {
++            ++length;
++            const Coord3D *pos=node->getPosition();
++            // Hash float bit patterns and layers, with no numeric rounding.
++            for(float v : {pos->x,pos->y,pos->z}) {
++                uint32_t bits; memcpy(&bits,&v,sizeof(bits)); hash^=bits; hash*=1099511628211ull;
++            }
++            hash^=static_cast<unsigned>(node->getLayer()); hash*=1099511628211ull;
++        }
++        operation('E',0,0);
++        if(requestLog) fprintf(requestLog,"%u,%s,%u,%.9g,%.9g,%.9g,%.9g,%u,%u,%u,%u,%u,%u,%.3f,%u,%llu,%llu\n",
++            frame,kind,object,from.x,from.y,to.x,to.y,path!=nullptr,counters.expansions,counters.pushes,counters.removes,
++            counters.maxOpen,length,us,fallback,counters.expansionHash,hash);
++        // Search functions are peers; if a future nested search is added, do not double-count its time.
++        if(!previous) { ++requests; totalUs+=us; if(us>maxUs)maxUs=us;
++            expansionsTotal+=counters.expansions; if(counters.maxOpen>peakOpen)peakOpen=counters.maxOpen; }
++        return path;
++    }
++    ~Trace() { if(enabled) active=previous; }
++};
++} // namespace zhpf
+diff --git a/Core/GameEngine/Source/GameLogic/AI/Pathfinder/PathfindCell.cpp b/Core/GameEngine/Source/GameLogic/AI/Pathfinder/PathfindCell.cpp
+index 2008c82..494a8b8 100644
+--- a/Core/GameEngine/Source/GameLogic/AI/Pathfinder/PathfindCell.cpp
++++ b/Core/GameEngine/Source/GameLogic/AI/Pathfinder/PathfindCell.cpp
+@@ -16,6 +16,8 @@
+ **	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
++#include "Common/PathfindTelemetry.h"
++#include "Common/PathfindHeap.h"
+ #include "GameLogic/Object.h"
+ #include "GameLogic/Pathfinder/PathfindCell.h"
+ #include "GameLogic/Pathfinder/PathfindCellInfo.h"
+@@ -633,9 +635,36 @@ void PathfindCell::reverseInsertionSort(PathfindCellList& list)
+ 	m_info->m_nextOpen = current->m_info;
+ }
+ 
++// Rebuild the exact stable sorted chain before the original release loop. This keeps
++// PathfindCellInfo free-list reuse order identical to the linked-list algorithm.
++void PathfindCell::prepareHeapList(PathfindCellList &list)
++{
++    auto *heap=zhpf::heapFor(&list);if(!heap)return;
++    heap->sortForCleanup();
++    list.m_head=heap->ordered.empty()?nullptr:static_cast<PathfindCell*>(heap->ordered.front());
++    list.m_tail=heap->ordered.empty()?nullptr:static_cast<PathfindCell*>(heap->ordered.back());
++    for(size_t i=0;i<heap->ordered.size();++i){
++        auto *cell=static_cast<PathfindCell*>(heap->ordered[i]);
++        cell->m_info->m_prevOpen=i?static_cast<PathfindCell*>(heap->ordered[i-1])->m_info:nullptr;
++        cell->m_info->m_nextOpen=i+1<heap->ordered.size()?static_cast<PathfindCell*>(heap->ordered[i+1])->m_info:nullptr;
++    }
++}
+ /// put self on "open" list in ascending cost order, return new list
+ void PathfindCell::putOnSortedOpenList( PathfindCellList &list )
+ {
++	zhpf::push(reinterpret_cast<std::uintptr_t>(this),getTotalCost()); // T-022: counter only with an active request scope.
++    if(auto *heap=zhpf::heapFor(&list,true)){
++        // At the retail insertion cap its behavior can cease to be globally sorted.
++        // Reconstruct and use the unchanged original implementation from this point.
++        if(heap->nodes.size()>=PATHFIND_CELLS_PER_FRAME)prepareHeapList(list);
++        else {
++            heap->insert(this,getTotalCost());m_info->m_open=true;m_info->m_closed=false;
++            m_info->m_nextOpen=m_info->m_prevOpen=nullptr;
++            list.m_head=static_cast<PathfindCell*>(heap->top());list.m_tail=list.m_head;return;
++        }
++    }
++
++
+ #if RETAIL_COMPATIBLE_PATHFINDING
+ 	if (!s_useFixedPathfinding) {
+ 		forwardInsertionSortRetailCompatible(list);
+@@ -657,6 +686,13 @@ void PathfindCell::putOnSortedOpenList( PathfindCellList &list )
+ /// remove self from "open" list
+ void PathfindCell::removeFromOpenList( PathfindCellList &list )
+ {
++	zhpf::remove(reinterpret_cast<std::uintptr_t>(this)); // T-022: counter only with an active request scope.
++    if(auto *heap=zhpf::heapFor(&list)){
++        heap->remove(this);m_info->m_open=false;m_info->m_nextOpen=m_info->m_prevOpen=nullptr;
++        list.m_head=static_cast<PathfindCell*>(heap->top());list.m_tail=list.m_head;return;
++    }
++
++
+ 	DEBUG_ASSERTCRASH(m_info, ("Has to have info."));
+ 	DEBUG_ASSERTCRASH(m_info->m_closed==FALSE && m_info->m_open==TRUE, ("Serious error - Invalid flags. jba"));
+ 	if (m_info->m_nextOpen)
+@@ -679,6 +715,7 @@ void PathfindCell::removeFromOpenList( PathfindCellList &list )
+ /// remove all cells from "open" list
+ Int PathfindCell::releaseOpenList( PathfindCellList &list )
+ {
++    prepareHeapList(list);
+ 	Int count = 0;
+ 	while (list.m_head) {
+ 		count++;
+diff --git a/Core/GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DDebrisDraw.cpp b/Core/GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DDebrisDraw.cpp
+index 6895616..e114f3e 100644
+--- a/Core/GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DDebrisDraw.cpp
++++ b/Core/GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DDebrisDraw.cpp
+@@ -30,6 +30,8 @@
+ // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
+ 
+ #include "Common/FileSystem.h"	// this is only here to pull in LOAD_TEST_ASSETS
++#include <stdio.h>
++#include <stdlib.h>
+ #include "Common/GlobalData.h"
+ #include "Common/ThingTemplate.h"
+ #include "Common/Xfer.h"
+@@ -110,6 +112,20 @@ void W3DDebrisDraw::setModelName(AsciiString name, Color color, ShadowType t)
+ 			hexColor = color | 0xFF000000;
+ 		m_renderObject = W3DDisplay::m_assetManager->Create_Render_Obj(name.str(), getDrawable()->getScale(), hexColor);
+ 		DEBUG_ASSERTCRASH(m_renderObject, ("Debris model %s not found!",name.str()));
++		// PROJECT PATCH (T-036): test-only log of debris models that fail to load.
++		if (m_renderObject == nullptr)
++		{
++			const char *debrisLogPath = getenv("ZH_DEBRIS_LOG");
++			if (debrisLogPath && *debrisLogPath)
++			{
++				FILE *debrisLog = fopen(debrisLogPath, "a");
++				if (debrisLog != nullptr)
++				{
++					fprintf(debrisLog, "missing %s\n", name.str());
++					fclose(debrisLog);
++				}
++			}
++		}
+ 		if (m_renderObject)
+ 		{
+ 			if (W3DDisplay::m_3DScene != nullptr)
+@@ -212,6 +228,26 @@ void W3DDebrisDraw::reactToTransformChange( const Matrix3D *oldMtx,
+ //-------------------------------------------------------------------------------------------------
+ void W3DDebrisDraw::doDrawModule(const Matrix3D* transformMtx)
+ {
++	// PROJECT PATCH (T-036): test-only draw log (ZH_DEBRIS_LOG). Records the first few draws
++	// with model, position, render object and scale so an invisible debris field can be triaged.
++	{
++		static Int s_drawLogCount = 0;
++		const char *debrisLogPath = getenv("ZH_DEBRIS_LOG");
++		if (debrisLogPath && *debrisLogPath && s_drawLogCount < 20)
++		{
++			FILE *debrisLog = fopen(debrisLogPath, "a");
++			if (debrisLog != nullptr)
++			{
++				const Coord3D *p = getDrawable()->getPosition();
++				fprintf(debrisLog, "draw %s pos=(%.1f,%.1f,%.1f) render=%p scale=%.2f\n",
++					m_modelName.str(), p->x, p->y, p->z, (void *)m_renderObject,
++					getDrawable()->getInstanceScale());
++				fclose(debrisLog);
++				++s_drawLogCount;
++			}
++		}
++	}
++
+ 	if (m_renderObject)
+ 	{
+ 
+diff --git a/Core/GameEngineDevice/Source/W3DDevice/GameClient/W3DView.cpp b/Core/GameEngineDevice/Source/W3DDevice/GameClient/W3DView.cpp
+index da00f97..ad7421d 100644
+--- a/Core/GameEngineDevice/Source/W3DDevice/GameClient/W3DView.cpp
++++ b/Core/GameEngineDevice/Source/W3DDevice/GameClient/W3DView.cpp
+@@ -36,6 +36,16 @@
+ #include <stdlib.h>
+ #include <windows.h>
+ 
++// PROJECT PATCH (T-059): per-frame counters for the icon pass, filled by Drawable::drawIconUI.
++extern unsigned int g_zhIconDrawables;
++extern unsigned int g_zhIconHealthBars;
++extern unsigned int g_zhIconHealIcons;
++extern unsigned int g_zhModelConditionChanges;
++extern unsigned int g_zhHealPulses;
++extern unsigned int g_zhHealQueries;
++extern unsigned int g_zhHealObjects;
++extern unsigned int g_zhHealParticles;
++
+ // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
+ #include "Lib/BaseType.h"
+ 
+@@ -2073,10 +2083,50 @@ void W3DView::draw()
+ 	//
+ 	TheGameClient->resetRenderedObjectCount();
+ 
++	// PROJECT PATCH (T-059): test-only timing of the per-unit icon pass (health bars, heal
++	// icons, captions, veterancy...). One row per frame: frame,ms,drawables,bars,healIcons.
++	static FILE *zhIconLog = nullptr;
++	static Bool zhIconInit = FALSE;
++	static LARGE_INTEGER zhIconFreq;
++	if (!zhIconInit)
++	{
++		zhIconInit = TRUE;
++		const char *iconPath = getenv("ZH_ICON_LOG");
++		if (iconPath && *iconPath)
++		{
++			zhIconLog = fopen(iconPath, "w");
++			if (zhIconLog != nullptr)
++			{
++				fprintf(zhIconLog, "frame,ms,drawables,bars,healIcons,healPulses,modelChanges,healQueries,healObjects,healParticles\n");
++				QueryPerformanceFrequency(&zhIconFreq);
++			}
++		}
++	}
++	LARGE_INTEGER zhIconT0, zhIconT1;
++	QueryPerformanceCounter(&zhIconT0);
++
+ 	TheDisplay->beginBatch();
+ 	TheGameClient->iterateDrawablesInRegion( &axisAlignedRegion, drawablePostDraw, this );
+ 	TheDisplay->endBatch();
+ 
++	if (zhIconLog != nullptr)
++	{
++		QueryPerformanceCounter(&zhIconT1);
++		fprintf(zhIconLog, "%d,%.3f,%u,%u,%u,%u,%u,%u,%u,%u\n",
++			TheGameLogic ? TheGameLogic->getFrame() : -1,
++			(double)(zhIconT1.QuadPart - zhIconT0.QuadPart) * 1000.0 / (double)zhIconFreq.QuadPart,
++			g_zhIconDrawables, g_zhIconHealthBars, g_zhIconHealIcons, g_zhHealPulses, g_zhModelConditionChanges, g_zhHealQueries, g_zhHealObjects, g_zhHealParticles);
++		fflush(zhIconLog);
++		g_zhIconDrawables = 0;
++		g_zhIconHealthBars = 0;
++		g_zhIconHealIcons = 0;
++		g_zhHealPulses = 0;
++		g_zhModelConditionChanges = 0;
++		g_zhHealQueries = 0;
++		g_zhHealObjects = 0;
++		g_zhHealParticles = 0;
++	}
++
+ 	TheGameClient->flushTextBearingDrawables();
+ 
+ 	// Render 2D scene
+diff --git a/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp b/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
+index 1303cfb..44066da 100644
+--- a/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
++++ b/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
+@@ -51,6 +51,9 @@
+ #endif
+ 
+ #include "dx8wrapper.h"
++#include <stdio.h>
++#include <stdlib.h>
++#include <dxgi.h>
+ #include "dx8webbrowser.h"
+ #include "dx8fvf.h"
+ #include "dx8vertexbuffer.h"
+@@ -83,6 +86,7 @@
+ #include "formconv.h"
+ #include "dx8texman.h"
+ #include "WWLib/bound.h"
++#include "WWLib/ZhLockStats.h"	// PROJECT PATCH (T-068)
+ #include "DbgHelpGuard.h"
+ #include <Utility/bit_adapter.h>
+ 
+@@ -504,6 +508,128 @@ void DX8Wrapper::Do_Onetime_Device_Dependent_Shutdowns()
+ }
+ 
+ 
++// PROJECT PATCH (T-039): hybrid-GPU adapter selection.
++// The retail engine always renders on D3DADAPTER_DEFAULT, which on a hybrid laptop is usually
++// the integrated GPU. Pick the adapter with the most dedicated video memory reported by DXGI
++// so the discrete GPU is used by default. ZH_ADAPTER=<n> forces an index; ZH_ADAPTER_LOG=<path>
++// records the decision for benchmarks.
++static int Get_Preferred_Render_Device(IDirect3D8 *d3d)
++{
++	if (d3d == nullptr)
++		return 0;
++
++	const int adapterCount = d3d->GetAdapterCount();
++	if (adapterCount <= 1)
++		return 0;
++
++	if (const char *forced = getenv("ZH_ADAPTER"))
++	{
++		const int index = atoi(forced);
++		if (index >= 0 && index < adapterCount)
++			return index;
++	}
++
++	struct DxgiAdapterInfo
++	{
++		unsigned vendor;
++		unsigned device;
++		unsigned long long dedicatedVideoMemory;
++		bool valid;
++	};
++	DxgiAdapterInfo dxgiAdapters[16] = {};
++	int dxgiAdapterCount = 0;
++
++	HMODULE dxgiLibrary = LoadLibraryA("dxgi.dll");
++	if (dxgiLibrary != nullptr)
++	{
++		typedef HRESULT (WINAPI *PFN_CreateDXGIFactory)(REFIID, void **);
++		PFN_CreateDXGIFactory createFactory = (PFN_CreateDXGIFactory)GetProcAddress(dxgiLibrary, "CreateDXGIFactory");
++		IDXGIFactory *factory = nullptr;
++		if (createFactory != nullptr && SUCCEEDED(createFactory(__uuidof(IDXGIFactory), (void **)&factory)) && factory != nullptr)
++		{
++			for (UINT i = 0; i < ARRAY_SIZE(dxgiAdapters); ++i)
++			{
++				IDXGIAdapter *adapter = nullptr;
++				if (factory->EnumAdapters(i, &adapter) != S_OK || adapter == nullptr)
++					break;
++
++				DXGI_ADAPTER_DESC desc;
++				::ZeroMemory(&desc, sizeof(desc));
++				if (SUCCEEDED(adapter->GetDesc(&desc)))
++				{
++					dxgiAdapters[dxgiAdapterCount].vendor = desc.VendorId;
++					dxgiAdapters[dxgiAdapterCount].device = desc.DeviceId;
++					dxgiAdapters[dxgiAdapterCount].dedicatedVideoMemory = desc.DedicatedVideoMemory;
++					dxgiAdapters[dxgiAdapterCount].valid = true;
++					++dxgiAdapterCount;
++				}
++				adapter->Release();
++			}
++			factory->Release();
++		}
++		FreeLibrary(dxgiLibrary);
++	}
++
++	int bestAdapter = 0;
++	unsigned long long bestScore = 0;
++	bool bestFound = false;
++	for (int adapterIndex = 0; adapterIndex < adapterCount; ++adapterIndex)
++	{
++		D3DADAPTER_IDENTIFIER8 identifier;
++		::ZeroMemory(&identifier, sizeof(identifier));
++		if (FAILED(d3d->GetAdapterIdentifier(adapterIndex, D3DENUM_NO_WHQL_LEVEL, &identifier)))
++			continue;
++
++		D3DCAPS8 caps;
++		::ZeroMemory(&caps, sizeof(caps));
++		if (FAILED(d3d->GetDeviceCaps(adapterIndex, WW3D_DEVTYPE, &caps)))
++			continue;
++
++		unsigned long long score = 1;
++		for (int i = 0; i < dxgiAdapterCount; ++i)
++		{
++			if (dxgiAdapters[i].valid &&
++				dxgiAdapters[i].vendor == identifier.VendorId &&
++				dxgiAdapters[i].device == identifier.DeviceId)
++			{
++				score = dxgiAdapters[i].dedicatedVideoMemory + 1;
++				break;
++			}
++		}
++
++		// Without DXGI, prefer any non-Intel hardware adapter over the integrated one.
++		if (dxgiAdapterCount == 0 && identifier.VendorId != 0x8086)
++			score = 2;
++
++		if (!bestFound || score > bestScore)
++		{
++			bestAdapter = adapterIndex;
++			bestScore = score;
++			bestFound = true;
++		}
++	}
++
++	if (const char *logPath = getenv("ZH_ADAPTER_LOG"))
++	{
++		FILE *log = fopen(logPath, "a");
++		if (log != nullptr)
++		{
++			fprintf(log, "adapters=%d chosen=%d score=%llu\n", adapterCount, bestAdapter, bestScore);
++			for (int i = 0; i < adapterCount; ++i)
++			{
++				D3DADAPTER_IDENTIFIER8 identifier;
++				::ZeroMemory(&identifier, sizeof(identifier));
++				if (SUCCEEDED(d3d->GetAdapterIdentifier(i, D3DENUM_NO_WHQL_LEVEL, &identifier)))
++					fprintf(log, "  adapter[%d] vendor=0x%04X device=0x%04X desc=%s\n",
++						i, identifier.VendorId, identifier.DeviceId, identifier.Description);
++			}
++			fclose(log);
++		}
++	}
++
++	return bestAdapter;
++}
++
+ bool DX8Wrapper::Create_Device()
+ {
+ 	WWASSERT(D3DDevice==nullptr);	// for now, once you've created a device, you're stuck with it!
+@@ -955,11 +1081,16 @@ bool DX8Wrapper::Set_Render_Device(int dev, int width, int height, int bits, int
+ 	WWASSERT(dev < _RenderDeviceNameTable.Count());
+ 
+ 	/*
+-	** If user has never selected a render device, start out with device 0
++	** PROJECT PATCH (T-039): default (0) means "let the engine choose"; on hybrid systems
++	** that is the discrete GPU. An explicit non-zero index is honored unchanged.
+ 	*/
+-	if ((CurRenderDevice == -1) && (dev == -1)) {
+-		CurRenderDevice = 0;
+-	} else if (dev != -1) {
++	if (dev <= 0)
++	{
++		const int preferred = Get_Preferred_Render_Device(D3DInterface);
++		CurRenderDevice = (preferred >= 0 && preferred < _RenderDeviceNameTable.Count()) ? preferred : 0;
++	}
++	else
++	{
+ 		CurRenderDevice = dev;
+ 	}
+ 
+@@ -1533,13 +1664,13 @@ bool DX8Wrapper::Find_Color_Mode(D3DFORMAT colorbuffer, int resx, int resy, UINT
+ 
+ 	bool found=false;
+ 
+-	modemax=D3DInterface->GetAdapterModeCount(D3DADAPTER_DEFAULT);
++	modemax=D3DInterface->GetAdapterModeCount((CurRenderDevice >= 0 ? CurRenderDevice : 0));
+ 
+ 	i=0;
+ 
+ 	while (i<modemax && !found)
+ 	{
+-		D3DInterface->EnumAdapterModes(D3DADAPTER_DEFAULT, i, &dmode);
++		D3DInterface->EnumAdapterModes((CurRenderDevice >= 0 ? CurRenderDevice : 0), i, &dmode);
+ 		if (dmode.Width==rx && dmode.Height==ry && dmode.Format==colorbuffer) {
+ 			WWDEBUG_SAY(("Found valid color mode.  Width = %d Height = %d Format = %d",dmode.Width,dmode.Height,dmode.Format));
+ 			found=true;
+@@ -1561,7 +1692,7 @@ bool DX8Wrapper::Find_Color_Mode(D3DFORMAT colorbuffer, int resx, int resy, UINT
+ 	j=i;
+ 	while (j<modemax && stillok)
+ 	{
+-		D3DInterface->EnumAdapterModes(D3DADAPTER_DEFAULT, j, &dmode);
++		D3DInterface->EnumAdapterModes((CurRenderDevice >= 0 ? CurRenderDevice : 0), j, &dmode);
+ 		if (dmode.Width==rx && dmode.Height==ry && dmode.Format==colorbuffer)
+ 			stillok=true; else stillok=false;
+ 		j++;
+@@ -1628,7 +1759,7 @@ bool DX8Wrapper::Find_Z_Mode(D3DFORMAT colorbuffer,D3DFORMAT backbuffer, D3DFORM
+ bool DX8Wrapper::Test_Z_Mode(D3DFORMAT colorbuffer,D3DFORMAT backbuffer, D3DFORMAT zmode)
+ {
+ 	// See if we have this mode first
+-	if (FAILED(D3DInterface->CheckDeviceFormat(D3DADAPTER_DEFAULT,WW3D_DEVTYPE,
++	if (FAILED(D3DInterface->CheckDeviceFormat((CurRenderDevice >= 0 ? CurRenderDevice : 0),WW3D_DEVTYPE,
+ 		colorbuffer,D3DUSAGE_DEPTHSTENCIL,D3DRTYPE_SURFACE,zmode)))
+ 	{
+ 		WWDEBUG_SAY(("CheckDeviceFormat failed.  Colorbuffer format = %d  Zbufferformat = %d",colorbuffer,zmode));
+@@ -1636,7 +1767,7 @@ bool DX8Wrapper::Test_Z_Mode(D3DFORMAT colorbuffer,D3DFORMAT backbuffer, D3DFORM
+ 	}
+ 
+ 	// Then see if it matches the color buffer
+-	if(FAILED(D3DInterface->CheckDepthStencilMatch(D3DADAPTER_DEFAULT, WW3D_DEVTYPE,
++	if(FAILED(D3DInterface->CheckDepthStencilMatch((CurRenderDevice >= 0 ? CurRenderDevice : 0), WW3D_DEVTYPE,
+ 		colorbuffer,backbuffer,zmode)))
+ 	{
+ 		WWDEBUG_SAY(("CheckDepthStencilMatch failed.  Colorbuffer format = %d  Backbuffer format = %d Zbufferformat = %d",colorbuffer,backbuffer,zmode));
+@@ -1735,6 +1866,81 @@ void DX8Wrapper::End_Scene(bool flip_frames)
+ 		}
+ 	}
+ 
++	// PROJECT PATCH (T-015): optional frame-time log, enabled by ZH_PERF_LOG=<path>.
++	// Records one CSV row per presented frame; zero overhead when the variable is unset.
++	{
++		static bool perfInit = false;
++		static FILE *perfFile = nullptr;
++		static LARGE_INTEGER perfFreq;
++		static LARGE_INTEGER perfLast;
++		static unsigned long long perfFrame = 0;
++		if (!perfInit)
++		{
++			perfInit = true;
++			const char *perfPath = getenv("ZH_PERF_LOG");
++			if (perfPath && *perfPath)
++			{
++				perfFile = fopen(perfPath, "w");
++				if (perfFile)
++				{
++					fprintf(perfFile, "frame,frame_ms\n");
++					QueryPerformanceFrequency(&perfFreq);
++					QueryPerformanceCounter(&perfLast);
++				}
++			}
++		}
++		if (perfFile)
++		{
++			LARGE_INTEGER now;
++			QueryPerformanceCounter(&now);
++			double frameMs = (double)(now.QuadPart - perfLast.QuadPart) * 1000.0 / (double)perfFreq.QuadPart;
++			perfLast = now;
++			++perfFrame;
++			fprintf(perfFile, "%llu,%.4f\n", perfFrame, frameMs);
++			if ((perfFrame % 120) == 0)
++				fflush(perfFile);
++		}
++	}
++
++	// PROJECT PATCH (T-068): cumulative object-pool / AsciiString critical-section cost.
++	// One row every 30 frames; zero overhead when ZH_LOCK_LOG is unset.
++	{
++		static bool lockInit = false;
++		static FILE *lockFile = nullptr;
++		static unsigned long long lockRow = 0;
++		static long long lockT0 = 0;
++		if (!lockInit)
++		{
++			lockInit = true;
++			const char *lockPath = getenv("ZH_LOCK_LOG");
++			if (lockPath && *lockPath)
++			{
++				lockFile = fopen(lockPath, "w");
++				if (lockFile)
++				{
++					fprintf(lockFile, "row,elapsed_ms,pool_calls,pool_ms,str_calls,str_ms,qpc_pair_us\n");
++					lockT0 = zhLockNow();
++				}
++			}
++		}
++		if (lockFile)
++		{
++			++lockRow;
++			if ((lockRow % 30) == 0)
++			{
++				const double freq = (double)zhLockFrequency();
++				const double elapsedMs = (double)(zhLockNow() - lockT0) * 1000.0 / freq;
++				const ZhLockTotals &pool = zhPoolLockTotals();
++				const ZhLockTotals &str = zhStringLockTotals();
++				fprintf(lockFile, "%llu,%.1f,%llu,%.3f,%llu,%.3f,%.4f\n", lockRow, elapsedMs,
++						pool.calls, (double)pool.ticks * 1000.0 / freq,
++						str.calls, (double)str.ticks * 1000.0 / freq, zhLockQpcPairUs());
++				fflush(lockFile);
++			}
++		}
++	}
++
++
+ 	// Each frame, release all of the buffers and textures.
+ 	Set_Vertex_Buffer(nullptr);
+ 	Set_Index_Buffer(nullptr,0);
+diff --git a/Core/Libraries/Source/WWVegas/WWLib/mempool.h b/Core/Libraries/Source/WWVegas/WWLib/mempool.h
+index 1670d81..cb9d987 100644
+--- a/Core/Libraries/Source/WWVegas/WWLib/mempool.h
++++ b/Core/Libraries/Source/WWVegas/WWLib/mempool.h
+@@ -47,6 +47,7 @@
+ #include "bittype.h"
+ #include "WWDebug/wwdebug.h"
+ #include "mutex.h"
++#include "ZhLockStats.h"	// PROJECT PATCH (T-068)
+ #include <new>
+ #include <stdlib.h>
+ #include <stddef.h>
+@@ -276,6 +277,7 @@ void ObjectPoolClass<T,BLOCK_SIZE>::Free_Object(T * obj)
+ template<class T,int BLOCK_SIZE>
+ T * ObjectPoolClass<T,BLOCK_SIZE>::Allocate_Object_Memory()
+ {
++	ZhLockTimer zhLockTimer((zhPoolLockTotals()));	// PROJECT PATCH (T-068)
+ 	FastCriticalSectionClass::LockClass lock(ObjectPoolCS);
+ 
+ 	if ( FreeListHead == nullptr ) {
+@@ -320,6 +322,7 @@ T * ObjectPoolClass<T,BLOCK_SIZE>::Allocate_Object_Memory()
+ template<class T,int BLOCK_SIZE>
+ void ObjectPoolClass<T,BLOCK_SIZE>::Free_Object_Memory(T * obj)
+ {
++	ZhLockTimer zhLockTimer((zhPoolLockTotals()));	// PROJECT PATCH (T-068)
+ 	FastCriticalSectionClass::LockClass lock(ObjectPoolCS);
+ 
+ 	WWASSERT(obj != nullptr);
+diff --git a/GeneralsMD/Code/GameEngine/Source/Common/GameEngine.cpp b/GeneralsMD/Code/GameEngine/Source/Common/GameEngine.cpp
+index 57d729b..eef6db6 100644
+--- a/GeneralsMD/Code/GameEngine/Source/Common/GameEngine.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/Common/GameEngine.cpp
+@@ -65,6 +65,7 @@
+ #include "Common/TerrainTypes.h"
+ #include "Common/Upgrade.h"
+ #include "Common/OptionPreferences.h"
++#include "Common/OptimizationPolicy.h"
+ #include "Common/Xfer.h"
+ #include "Common/XferCRC.h"
+ #include "Common/GameLOD.h"
+@@ -649,6 +650,11 @@ void GameEngine::init()
+ 
+ 		TheSubsystemList->postProcessLoadAll();
+ 
++		// T-079: startup overrides are inputs to mutable state, never permanent limiter vetoes.
++		extern Bool g_zhStartupUncappedFps;
++		TheWritableGlobalData->m_useFpsLimit = zh::startupFpsLimit(
++			OptionPreferences().getFPSLimitEnabled(), getenv("ZH_NOFPSLIMIT"), g_zhStartupUncappedFps);
++		g_zhStartupUncappedFps = false;
+ 		TheFramePacer->setFramesPerSecondLimit(TheGlobalData->m_framesPerSecondLimit);
+ 
+ 		TheAudio->setOn(TheGlobalData->m_audioOn && TheGlobalData->m_musicOn, AudioAffect_Music);
+@@ -872,41 +878,271 @@ Bool GameEngine::canUpdateRegularGameLogic(UnsignedInt logicTimeQueryFlags)
+ /// -----------------------------------------------------------------------------------------------
+ DECLARE_PERF_TIMER(GameEngine_update)
+ 
++// PROJECT PATCH (T-051): test-only frame attribution (ZH_ATTR_LOG=<csv>, ZH_ATTR_SAMPLE=1).
++//
++// The existing ZH_PERF_LOG row is written from DX8Wrapper::End_Scene, so a 350 ms spike is
++// only known to be "somewhere between two presents". This logger splits the same interval into
++// pre(CRC/radar), audio, client, messages, network, logic and frame pacer, and writes the
++// residual so an unattributed stall (present/swap inside client, driver, OS) is visible instead
++// of hidden in a bucket. GameClient/GameLogic publish their sub-timings through PerfAttrib.h.
++#include "Common/PerfAttrib.h"
++
++double g_zhAttrShellMs = 0.0;
++double g_zhAttrDrawMs = 0.0;
++double g_zhAttrParticlesMs = 0.0;
++double g_zhAttrDisplayStringMs = 0.0;
++double g_zhAttrIngameUiMs = 0.0;
++double g_zhAttrLogicUpdatesMs = 0.0;
++double g_zhAttrLogicAiMs = 0.0;
++double g_zhAttrLogicBuildMs = 0.0;
++double g_zhAttrLogicPartitionMs = 0.0;
++double g_zhAttrLogicDestroyMs = 0.0;
++double g_zhAttrLogicRestMs = 0.0;
++double g_zhAttrSlowestUpdateMs = 0.0;
++char g_zhAttrSlowestUpdate[64] = { 0 };
++char g_zhAttrSlowestUpdateObject[64] = { 0 };
++double g_zhAttrSlowestDestroyMs = 0.0;
++char g_zhAttrSlowestDestroy[64] = { 0 };
++int g_zhAttrDestroyObjects = 0;
++int g_zhAttrSpawnObjects = 0;
++double g_zhAttrSpawnMs = 0.0;
++int g_zhAttrNukeTicks = 0;
++bool g_zhAttrSample = false;
++
++static FILE *s_zhAttrFile = nullptr;
++static int s_zhAttrEnabled = -1;
++static LARGE_INTEGER s_zhAttrFreq;
++static LARGE_INTEGER s_zhAttrStart;
++static LARGE_INTEGER s_zhAttrPrevEnd;
++static bool s_zhAttrHavePrevEnd = false;
++static double s_zhAttrLoopGap = 0.0;
++static LARGE_INTEGER s_zhAttrPhase;
++static unsigned long long s_zhAttrRow = 0;
++static double s_zhAttrPre = 0.0;
++static double s_zhAttrAudio = 0.0;
++static double s_zhAttrClient = 0.0;
++static double s_zhAttrMsg = 0.0;
++static double s_zhAttrNet = 0.0;
++static double s_zhAttrLogic = 0.0;
++static double s_zhAttrPacer = 0.0;
++static double s_zhAttrInterval = 0.0;
++
++static double zhAttrMs(const LARGE_INTEGER &a, const LARGE_INTEGER &b)
++{
++	return (double)(b.QuadPart - a.QuadPart) * 1000.0 / (double)s_zhAttrFreq.QuadPart;
++}
++
++static bool zhAttrOn()
++{
++	if (s_zhAttrEnabled < 0)
++	{
++		s_zhAttrEnabled = 0;
++		const char *path = getenv("ZH_ATTR_LOG");
++		if (path && *path)
++		{
++			s_zhAttrFile = fopen(path, "w");
++			if (s_zhAttrFile != nullptr)
++			{
++				QueryPerformanceFrequency(&s_zhAttrFreq);
++				QueryPerformanceCounter(&s_zhAttrStart);
++				fprintf(s_zhAttrFile,
++					"row,frame,interval,pre,audio,client,msg,net,logic,pacer,gap,"
++					"shell,draw,particles,displaystr,ingameui,"
++					"l_updates,l_ai,l_build,l_partition,l_destroy,l_rest,"
++					"slowest_update_us,slowest_update,slowest_update_obj,"
++					"destroyed,slowest_destroy_us,slowest_destroy,"
++					"spawned,spawn_ms,nukes\n");
++				s_zhAttrEnabled = 1;
++			}
++		}
++		const char *sample = getenv("ZH_ATTR_SAMPLE");
++		g_zhAttrSample = sample && atoi(sample) > 0;
++	}
++	return s_zhAttrEnabled == 1;
++}
++
++bool zhAttrLogging()
++{
++	return zhAttrOn();
++}
++
++void zhAttrResetFrame()
++{
++	g_zhAttrShellMs = 0.0;
++	g_zhAttrDrawMs = 0.0;
++	g_zhAttrParticlesMs = 0.0;
++	g_zhAttrDisplayStringMs = 0.0;
++	g_zhAttrIngameUiMs = 0.0;
++	g_zhAttrLogicUpdatesMs = 0.0;
++	g_zhAttrLogicAiMs = 0.0;
++	g_zhAttrLogicBuildMs = 0.0;
++	g_zhAttrLogicPartitionMs = 0.0;
++	g_zhAttrLogicDestroyMs = 0.0;
++	g_zhAttrLogicRestMs = 0.0;
++	g_zhAttrSlowestUpdateMs = 0.0;
++	g_zhAttrSlowestUpdate[0] = 0;
++	g_zhAttrSlowestUpdateObject[0] = 0;
++	g_zhAttrSlowestDestroyMs = 0.0;
++	g_zhAttrSlowestDestroy[0] = 0;
++	g_zhAttrDestroyObjects = 0;
++	g_zhAttrSpawnObjects = 0;
++	g_zhAttrSpawnMs = 0.0;
++	g_zhAttrNukeTicks = 0;
++}
++
++static void zhAttrWriteFrame(const LARGE_INTEGER &end)
++{
++	if (s_zhAttrFile == nullptr)
++		return;
++	// Everything after the logic/network marks and before this point is the frame pacer
++	// (sleep/clock pacing) plus the loop bookkeeping at the bottom of GameEngine::execute.
++	s_zhAttrPacer = zhAttrMs(s_zhAttrPhase, end);
++	// Measured from this frame's own start so the interval and the phase buckets describe the
++	// same frame. (An earlier build used the previous frame's start, which shifted the interval
++	// by one row and made the residual meaningless.)
++	s_zhAttrInterval = zhAttrMs(s_zhAttrStart, end);
++	s_zhAttrPrevEnd = end;
++	s_zhAttrHavePrevEnd = true;
++	// The phases are contiguous by construction, so the only time this logger cannot attribute
++	// is the gap between the previous frame's pacer exit and this frame's start (loop
++	// bookkeeping, profiling resets). It must be ~0; a large value means something outside the
++	// phase marks is blocking the loop.
++	const double gap = s_zhAttrLoopGap;
++	fprintf(s_zhAttrFile,
++		"%llu,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,"
++		"%.3f,%.3f,%.3f,%.3f,%.3f,"
++		"%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,"
++		"%.1f,%s,%s,"
++		"%d,%.1f,%s,"
++		"%d,%.3f,%d\n",
++		++s_zhAttrRow,
++		TheGameLogic ? TheGameLogic->getFrame() : -1,
++		s_zhAttrInterval, s_zhAttrPre, s_zhAttrAudio, s_zhAttrClient, s_zhAttrMsg,
++		s_zhAttrNet, s_zhAttrLogic, s_zhAttrPacer, gap,
++		g_zhAttrShellMs, g_zhAttrDrawMs, g_zhAttrParticlesMs, g_zhAttrDisplayStringMs,
++		g_zhAttrIngameUiMs,
++		g_zhAttrLogicUpdatesMs, g_zhAttrLogicAiMs, g_zhAttrLogicBuildMs,
++		g_zhAttrLogicPartitionMs, g_zhAttrLogicDestroyMs, g_zhAttrLogicRestMs,
++		g_zhAttrSlowestUpdateMs * 1000.0, g_zhAttrSlowestUpdate, g_zhAttrSlowestUpdateObject,
++		g_zhAttrDestroyObjects, g_zhAttrSlowestDestroyMs * 1000.0, g_zhAttrSlowestDestroy,
++		g_zhAttrSpawnObjects, g_zhAttrSpawnMs, g_zhAttrNukeTicks);
++	// Flushing every row can stall the frame this logger is supposed to measure (AV/disk), so
++	// flush in batches; the file is only read after the process exits.
++	if ((s_zhAttrRow % 60) == 0)
++		fflush(s_zhAttrFile);
++}
++
++
+ /** -----------------------------------------------------------------------------------------------
+  * Update the game engine by updating the GameClient and GameLogic singletons.
+  */
+ void GameEngine::update()
+ {
+ 	USE_PERF_TIMER(GameEngine_update)
++	const bool zhAttr = zhAttrOn();
++	LARGE_INTEGER zhAttrStart, zhAttrMark;
++	if (zhAttr)
++	{
++		QueryPerformanceCounter(&zhAttrStart);
++		s_zhAttrStart = zhAttrStart;
++		s_zhAttrPhase = zhAttrStart;
++		s_zhAttrLoopGap = s_zhAttrHavePrevEnd ? zhAttrMs(s_zhAttrPrevEnd, zhAttrStart) : 0.0;
++		// Reset at the start of the frame, before the client runs: resetting later (the first
++		// build did this) discards the client-phase values measured earlier in the same frame.
++		zhAttrResetFrame();
++		s_zhAttrPre = 0.0;
++		s_zhAttrAudio = 0.0;
++		s_zhAttrClient = 0.0;
++		s_zhAttrMsg = 0.0;
++		s_zhAttrNet = 0.0;
++		s_zhAttrLogic = 0.0;
++		s_zhAttrPacer = 0.0;
++	}
+ 	{
+ 		{
+ 			// VERIFY CRC needs to be in this code block.  Please to not pull TheGameLogic->update() inside this block.
+ 			VERIFY_CRC
+ 
+ 			TheRadar->UPDATE();
++			if (zhAttr) { QueryPerformanceCounter(&zhAttrMark); s_zhAttrPre = zhAttrMs(zhAttrStart, zhAttrMark); }
+ 
+ 			/// @todo Move audio init, update, etc, into GameClient update
+ 
+ 			TheAudio->UPDATE();
+-			TheGameClient->UPDATE();
++			if (zhAttr) { QueryPerformanceCounter(&zhAttrMark); s_zhAttrAudio = zhAttrMs(zhAttrStart, zhAttrMark) - s_zhAttrPre; }
++			{
++				static FILE *splitFile = nullptr;
++				static bool splitInit = false;
++				if (!splitInit)
++				{
++					splitInit = true;
++					const char *splitPath = getenv("ZH_PERF_SPLIT");
++					if (splitPath && *splitPath)
++					{
++						splitFile = fopen(splitPath, "w");
++						if (splitFile)
++							fprintf(splitFile, "phase,ms\n");
++					}
++				}
++				LARGE_INTEGER splitFreq, splitStart, splitEnd;
++				QueryPerformanceFrequency(&splitFreq);
++				QueryPerformanceCounter(&splitStart);
++				TheGameClient->UPDATE();
++				QueryPerformanceCounter(&splitEnd);
++				if (splitFile)
++				{
++					fprintf(splitFile, "client,%.4f\n", (double)(splitEnd.QuadPart - splitStart.QuadPart) * 1000.0 / (double)splitFreq.QuadPart);
++					fflush(splitFile);
++				}
++				if (zhAttr) { QueryPerformanceCounter(&zhAttrMark); s_zhAttrClient = zhAttrMs(zhAttrStart, zhAttrMark) - s_zhAttrPre - s_zhAttrAudio; }
++			}
+ 			TheMessageStream->propagateMessages();
++			if (zhAttr) { QueryPerformanceCounter(&zhAttrMark); s_zhAttrMsg = zhAttrMs(zhAttrStart, zhAttrMark) - s_zhAttrPre - s_zhAttrAudio - s_zhAttrClient; }
+ 
+ 			if (TheNetwork != nullptr)
+ 			{
+ 				TheNetwork->UPDATE();
+ 			}
++			if (zhAttr) { QueryPerformanceCounter(&zhAttrMark); s_zhAttrNet = zhAttrMs(zhAttrStart, zhAttrMark) - s_zhAttrPre - s_zhAttrAudio - s_zhAttrClient - s_zhAttrMsg; }
+ 		}
+ 
+ 		// TheSuperHackers @info Ignores frozen time because the script engine needs updating in the logic update regardless.
+ 		if (canUpdateGameLogic(FramePacer::IgnoreFrozenTime))
+ 		{
++			LARGE_INTEGER splitFreq, splitStart, splitEnd;
++			QueryPerformanceFrequency(&splitFreq);
++			QueryPerformanceCounter(&splitStart);
+ 			TheGameLogic->UPDATE();
++			QueryPerformanceCounter(&splitEnd);
++			{
++				static FILE *logicFile = nullptr;
++				static bool logicInit = false;
++				if (!logicInit)
++				{
++					logicInit = true;
++					const char *splitPath = getenv("ZH_PERF_SPLIT");
++					if (splitPath && *splitPath)
++						logicFile = fopen(splitPath, "a");
++				}
++				if (logicFile)
++				{
++					fprintf(logicFile, "logic,%.4f\n", (double)(splitEnd.QuadPart - splitStart.QuadPart) * 1000.0 / (double)splitFreq.QuadPart);
++					fflush(logicFile);
++				}
++			}
+ 
+ 			if (!TheFramePacer->isTimeFrozen())
+ 			{
+ 				TheGameClient->step();
+ 			}
+ 		}
++		if (zhAttr)
++		{
++			QueryPerformanceCounter(&zhAttrMark);
++			s_zhAttrLogic = zhAttrMs(zhAttrStart, zhAttrMark) - s_zhAttrPre - s_zhAttrAudio -
++				s_zhAttrClient - s_zhAttrMsg - s_zhAttrNet;
++			s_zhAttrPhase = zhAttrMark;
++		}
+ 	}
+ }
+ 
+@@ -988,6 +1224,12 @@ void GameEngine::execute()
+ 			}
+ 
+ 			TheFramePacer->update();
++			if (zhAttrOn())
++			{
++				LARGE_INTEGER zhAttrEnd;
++				QueryPerformanceCounter(&zhAttrEnd);
++				zhAttrWriteFrame(zhAttrEnd);
++			}
+ 		}
+ 
+ #ifdef PERF_TIMERS
+diff --git a/GeneralsMD/Code/GameEngine/Source/GameClient/Drawable.cpp b/GeneralsMD/Code/GameEngine/Source/GameClient/Drawable.cpp
+index 3136edb..19f0fb4 100644
+--- a/GeneralsMD/Code/GameEngine/Source/GameClient/Drawable.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameClient/Drawable.cpp
+@@ -2651,6 +2651,12 @@ void Drawable::draw()
+ /** Compute the health bar region based on the health of the object and the
+ 	* zoom level of the camera */
+ // ------------------------------------------------------------------------------------------------
++// PROJECT PATCH (T-059): per-frame counters for the icon pass, read by W3DView.
++unsigned int g_zhIconDrawables = 0;
++unsigned int g_zhIconHealthBars = 0;
++unsigned int g_zhIconHealIcons = 0;
++unsigned int g_zhModelConditionChanges = 0;
++
+ static Bool computeHealthRegion( const Drawable *draw, IRegion2D& region )
+ {
+ 
+@@ -2732,6 +2738,7 @@ void Drawable::drawIconUI()
+ {
+ 	if( TheGameLogic->getDrawIconUI() && (TheScriptEngine->getFade()==ScriptEngine::FADE_NONE) )
+ 	{
++		++g_zhIconDrawables;	// PROJECT PATCH (T-059)
+ 		IRegion2D healthBarRegionStorage;
+ 		const IRegion2D* healthBarRegion = nullptr;
+ 		if (computeHealthRegion(this, healthBarRegionStorage))
+@@ -3238,6 +3245,7 @@ void Drawable::drawHealing(const IRegion2D* healthBarRegion)
+ 				screen.x = REAL_TO_INT( healthBarRegion->lo.x + (barWidth * 0.75f) - (frameWidth * 0.5f) );
+ 				screen.y = REAL_TO_INT( healthBarRegion->lo.y - frameHeight );
+ 				getIconInfo()->m_icon[ typeIndex ]->draw( screen.x, screen.y, frameWidth, frameHeight );
++				++g_zhIconHealIcons;	// PROJECT PATCH (T-059)
+ 
+ 			}
+ 		}
+@@ -4014,6 +4022,9 @@ void Drawable::replaceModelConditionFlags( const ModelConditionFlags &flags, Boo
+ //-------------------------------------------------------------------------------------------------
+ void Drawable::replaceModelConditionStateInDrawable()
+ {
++	// PROJECT PATCH (T-059): count actual model rebuilds per frame (healing across a damage-state
++	// threshold rebuilds the model, which is the suspected CPU burst).
++	++g_zhModelConditionChanges;
+ 	// TheSuperHackers @info Set not dirty early to avoid recursive calls from within getDrawModules().
+ 	m_isModelDirty = false;
+ 
+diff --git a/GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/OptionsMenu.cpp b/GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/OptionsMenu.cpp
+index 2632c42..ac9e60e 100644
+--- a/GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/OptionsMenu.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/OptionsMenu.cpp
+@@ -37,6 +37,7 @@
+ #include "Common/GameAudio.h"
+ #include "Common/GameEngine.h"
+ #include "Common/OptionPreferences.h"
++#include "Common/FramePacer.h"
+ #include "Common/GameLOD.h"
+ #include "Common/Recorder.h"
+ #include "Common/Registry.h"
+@@ -442,9 +443,13 @@ static void saveOptions()
+ 		TheWritableGlobalData->m_useHeatEffects = GadgetCheckBoxIsChecked( checkHeatEffects );
+ 		(*pref)["HeatEffects"] = TheGlobalData->m_useHeatEffects ? "yes" : "no";
+ 
+-		// Never write this out
+-		//TheWritableGlobalData->m_useFpsLimit = !GadgetCheckBoxIsChecked( checkUnlockFps );
+-		//(*pref)["FPSLimit"] = TheGlobalData->m_useFpsLimit ? "yes" : "no";
++		// T-064: the "Unlock FPS" checkbox is now honoured and persisted, so the render cap is a
++		// real in-game setting (Ctrl+Numpad +/- still cycles the presets at runtime).
++		TheWritableGlobalData->m_useFpsLimit = !GadgetCheckBoxIsChecked( checkUnlockFps );
++		(*pref)["FPSLimit"] = TheWritableGlobalData->m_useFpsLimit ? "yes" : "no";
++		if (TheWritableGlobalData->m_useFpsLimit &&
++			TheFramePacer->getFramesPerSecondLimit() == RenderFpsPreset::UncappedFpsValue)
++			TheFramePacer->setFramesPerSecondLimit(LOGICFRAMES_PER_SECOND);
+ 
+ 		TheWritableGlobalData->m_enableBehindBuildingMarkers = GadgetCheckBoxIsChecked( checkBuildingOcclusion );
+ 		(*pref)["BuildingOcclusion"] = TheWritableGlobalData->m_enableBehindBuildingMarkers ? "yes" : "no";
+@@ -1057,6 +1062,25 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
+ 	sliderParticleCapID = TheNameKeyGenerator->nameToKey( "OptionsMenu.wnd:ParticleCapSlider" );
+   sliderParticleCap = TheWindowManager->winGetWindowFromId( nullptr, sliderParticleCapID );
+ 
++	// PROJECT PATCH (T-075): hover help for the settings that carry the performance work.
++	// Tooltips are set from code: the .wnd parser leaves the TOOLTIP field as a placeholder.
++	{
++		struct { GameWindow *window; const wchar_t *tip; } tips[] =
++		{
++			{ comboBoxAntiAliasing, L"Makes edges look smoother. Turning it OFF makes the game much faster, especially with lots of units." },
++			{ comboBoxDetail,       L"How much detail the game draws. LOW is the fastest; HIGH looks nicer but runs slower." },
++			{ checkUnlockFps,       L"Removes the 30 FPS limit so the game can run smoother and faster." },
++			{ sliderParticleCap,    L"How many explosion and smoke effects can be on screen. Lower makes big battles run faster." },
++			{ checkHeatEffects,     L"Wavy hot-air effect. Turning it off makes the game run a little faster." },
++			{ checkCloudShadows,    L"Moving shadows from clouds. Turning it off makes the game run a little faster; it does not change gameplay." },
++		};
++		for (int i = 0; i < (int)(sizeof(tips) / sizeof(tips[0])); ++i)
++		{
++			if (tips[i].window != nullptr)
++				tips[i].window->winSetTooltip(UnicodeString(tips[i].tip));
++		}
++	}
++
+ 	WinAdvancedDisplay->winHide(TRUE);
+ 
+ 	Color color =  GameMakeColor(255,255,255,255);
+diff --git a/GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp b/GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp
+index 58e4903..20fa723 100644
+--- a/GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp
+@@ -34,6 +34,7 @@
+ // USER INCLUDES //////////////////////////////////////////////////////////////
+ #include "Common/ActionManager.h"
+ #include "Common/FramePacer.h"
++#include "Common/PerfAttrib.h"	// PROJECT PATCH (T-051): frame attribution values
+ #include "Common/GameEngine.h"
+ #include "Common/GameState.h"
+ #include "Common/Recorder.h"
+@@ -503,6 +504,41 @@ void GameClient::registerDrawable( Drawable *draw )
+ /** -----------------------------------------------------------------------------------------------
+  * Redraw all views, update the GUI, play sound effects, etc.
+  */
++// PROJECT PATCH (T-047): test-only phase timer. Appends "<name>,<ms>" to ZH_PERF_SPLIT so a slow
++// client frame can be attributed to drawable updates, terrain visuals, display or particles.
++static void logClientPhase(const char *name, LARGE_INTEGER start, LARGE_INTEGER freq)
++{
++	static FILE *phaseFile = nullptr;
++	static Bool phaseInit = FALSE;
++	if (!phaseInit)
++	{
++		phaseInit = TRUE;
++		const char *splitPath = getenv("ZH_PERF_SPLIT");
++		if (splitPath && *splitPath)
++			phaseFile = fopen(splitPath, "a");
++	}
++	if (phaseFile != nullptr || zhAttrLogging())
++	{
++		LARGE_INTEGER end;
++		QueryPerformanceCounter(&end);
++		const double ms = (double)(end.QuadPart - start.QuadPart) * 1000.0 / (double)freq.QuadPart;
++		// PROJECT PATCH (T-051): publish the phase to the single-clock frame attribution row.
++		if (strcmp(name, "particles") == 0)
++			g_zhAttrParticlesMs = ms;
++		else if (strcmp(name, "displaystring") == 0)
++			g_zhAttrDisplayStringMs = ms;
++		else if (strcmp(name, "shell") == 0)
++			g_zhAttrShellMs = ms;
++		else if (strcmp(name, "ingameui") == 0)
++			g_zhAttrIngameUiMs = ms;
++		if (phaseFile != nullptr)
++		{
++			fprintf(phaseFile, "%s,%.4f\n", name, ms);
++			fflush(phaseFile);
++		}
++	}
++}
++
+ DECLARE_PERF_TIMER(GameClient_update)
+ DECLARE_PERF_TIMER(GameClient_draw)
+ void GameClient::update()
+@@ -596,6 +632,9 @@ void GameClient::update()
+ 
+ 	const Bool freezeTime = TheGameEngine->isTimeFrozen() || TheGameEngine->isGameHalted();
+ 
++	LARGE_INTEGER phaseFreq, phaseStart;
++	QueryPerformanceFrequency(&phaseFreq);
++
+ 	const Int localPlayerIndex = rts::getObservedOrLocalPlayer()->getPlayerIndex();
+ 
+ 	if (!freezeTime)
+@@ -630,6 +669,7 @@ void GameClient::update()
+ 
+ 
+ 		// call the update for all client drawables
++		QueryPerformanceCounter(&phaseStart);
+ 		const Real timeScale = TheFramePacer->getActualLogicTimeScaleOverFpsRatio();
+ 		Drawable* draw = firstDrawable();
+ 		while (draw)
+@@ -682,6 +722,7 @@ void GameClient::update()
+ 			draw->updateDrawable(timeScale);
+ 			draw = next;
+ 		}
++		logClientPhase("drawables", phaseStart, phaseFreq);
+ 	}
+ 
+ #if defined(RTS_DEBUG)
+@@ -694,12 +735,16 @@ void GameClient::update()
+ 
+ 	// update the terrain visuals
+ 	{
++		QueryPerformanceCounter(&phaseStart);
+ 		TheTerrainVisual->UPDATE();
++		logClientPhase("terrainvis", phaseStart, phaseFreq);
+ 	}
+ 
+ 	// update display
+ 	{
++		QueryPerformanceCounter(&phaseStart);
+ 		TheDisplay->UPDATE();
++		logClientPhase("displayupdate", phaseStart, phaseFreq);
+ 	}
+ 
+ 	// update all particle systems
+@@ -707,8 +752,10 @@ void GameClient::update()
+ 	// moves bone-attached particle systems to the current client bone transforms of their drawables.
+ 	if( !freezeTime && TheGameLogic->hasUpdated() )
+ 	{
++		QueryPerformanceCounter(&phaseStart);
+ 		TheParticleSystemManager->setLocalPlayerIndex(localPlayerIndex);
+ 		TheParticleSystemManager->UPDATE();
++		logClientPhase("particles", phaseStart, phaseFreq);
+ 	}
+ 
+ 	{
+@@ -717,22 +764,49 @@ void GameClient::update()
+ 	// redraw all views, update the GUI
+ 	//if(TheGameLogic->getFrame() >= 2)
+ 
+-		TheDisplay->DRAW();
++		{
++			LARGE_INTEGER drawFreq, drawStart, drawEnd;
++			QueryPerformanceFrequency(&drawFreq);
++			QueryPerformanceCounter(&drawStart);
++			TheDisplay->DRAW();
++			QueryPerformanceCounter(&drawEnd);
++			static FILE *drawFile = nullptr;
++			static bool drawInit = false;
++			if (!drawInit)
++			{
++				drawInit = true;
++				const char *splitPath = getenv("ZH_PERF_SPLIT");
++				if (splitPath && *splitPath)
++					drawFile = fopen(splitPath, "a");
++			}
++			if (drawFile)
++			{
++				fprintf(drawFile, "draw,%.4f\n", (double)(drawEnd.QuadPart - drawStart.QuadPart) * 1000.0 / (double)drawFreq.QuadPart);
++				fflush(drawFile);
++			}
++			g_zhAttrDrawMs = (double)(drawEnd.QuadPart - drawStart.QuadPart) * 1000.0 / (double)drawFreq.QuadPart;
++		}
+ 	}
+ 
+ 	{
++		QueryPerformanceCounter(&phaseStart);
+ 		// let display string factory handle its update
+ 		TheDisplayStringManager->update();
++		logClientPhase("displaystring", phaseStart, phaseFreq);
+ 	}
+ 
+ 	{
++		QueryPerformanceCounter(&phaseStart);
+ 		// update the shell
+ 		TheShell->UPDATE();
++		logClientPhase("shell", phaseStart, phaseFreq);
+ 	}
+ 
+ 	{
++		QueryPerformanceCounter(&phaseStart);
+ 		// update the in game UI
+ 		TheInGameUI->UPDATE();
++		logClientPhase("ingameui", phaseStart, phaseFreq);
+ 	}
+ }
+ 
+diff --git a/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Behavior/AutoHealBehavior.cpp b/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Behavior/AutoHealBehavior.cpp
+index fa1afbf..2f0281f 100644
+--- a/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Behavior/AutoHealBehavior.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Behavior/AutoHealBehavior.cpp
+@@ -45,6 +45,11 @@
+ #include "GameLogic/PartitionManager.h"
+ 
+ 
++// PROJECT PATCH (T-061): per-frame counters for the radius-heal path, read by W3DView.
++unsigned int g_zhHealQueries = 0;
++unsigned int g_zhHealObjects = 0;
++unsigned int g_zhHealParticles = 0;
++
+ //-------------------------------------------------------------------------------------------------
+ //-------------------------------------------------------------------------------------------------
+ struct AutoHealPlayerScanHelper
+@@ -238,6 +243,7 @@ UpdateSleepTime AutoHealBehavior::update()
+ 
+ 		// scan objects in our region
+ 		ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( obj->getPosition(), d->m_radius, FROM_CENTER_2D, filters );
++		++g_zhHealQueries;	// PROJECT PATCH (T-061)
+ 		MemoryPoolObjectHolder hold( iter );
+ 		for( obj = iter->first(); obj; obj = iter->next() )
+ 		{
+@@ -285,6 +291,8 @@ void AutoHealBehavior::pulseHealObject( Object *obj )
+ 	if (m_stopped)
+ 		return;
+ 
++	++g_zhHealObjects;	// PROJECT PATCH (T-061)
++
+ 	const AutoHealBehaviorModuleData *data = getAutoHealBehaviorModuleData();
+ 
+ 
+@@ -298,10 +306,14 @@ void AutoHealBehavior::pulseHealObject( Object *obj )
+ 	else
+ 		obj->attemptHealingFromSoleBenefactor( data->m_healingAmount, getObject(), data->m_healingDelay );
+ 
+-
++	// T-061: measured with a sustained radius healer (Spec_RepairStationFieldRepairObject, radius
++	// 156): 141 queries, 288 healed objects, 0 pulse particles - this call is already a no-op when
++	// the module has no UnitHealPulseParticleSystemName. Reverted the null-template guard because
++	// it cannot be validated as a gain; the path is documented as cheap in EXP-015.
+ 	ParticleSystem *system = TheParticleSystemManager->createParticleSystem( data->m_unitHealPulseParticleSystemTmpl );
+-	if( system )
++	if ( system != nullptr )
+ 	{
++		++g_zhHealParticles;	// PROJECT PATCH (T-061)
+ 		system->setPosition( obj->getPosition() );
+ 	}
+ 
+diff --git a/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/ObjectCreationList.cpp b/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/ObjectCreationList.cpp
+index 192807e..cbee2b1 100644
+--- a/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/ObjectCreationList.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/ObjectCreationList.cpp
+@@ -28,7 +28,10 @@
+ ///////////////////////////////////////////////////////////////////////////////////////////////////
+ 
+ // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
+-#include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
++#include "PreRTS.h"
++#include "Common/OptimizationPolicy.h"	// This must go first in EVERY cpp file in the GameEngine
++#include <stdlib.h>
++#include <string.h>
+ 
+ #define DEFINE_SHADOW_NAMES								// for TheShadowNames[]
+ #define DEFINE_WEAPONSLOTTYPE_NAMES
+@@ -724,7 +727,6 @@ static void parseFrictionPerSec( INI* ini, void * /*instance*/, void *store, con
+ 	*(Real *)store = fricPerFrame;
+ }
+ 
+-//-------------------------------------------------------------------------------------------------
+ class GenericObjectCreationNugget : public ObjectCreationNugget
+ {
+ 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(GenericObjectCreationNugget, "GenericObjectCreationNugget")
+@@ -813,6 +815,9 @@ public:
+ 		return nullptr;
+ 	}
+ 
++
++public:
++
+ 	static const FieldParse* getCommonFieldParse()
+ 	{
+ 		static const FieldParse commonFieldParse[] =
+@@ -1308,6 +1313,39 @@ protected:
+ 
+ 	Object* reallyCreate(const Coord3D *pos, const Matrix3D *mtx, Real orientation, const Object *sourceObj, UnsignedInt lifetimeFrames ) const
+ 	{
++		// PROJECT PATCH (T-041): per-logic-frame budgets for cosmetic debris and dead hulks.
++		// A mass death event otherwise creates thousands of objects in a handful of frames and
++		// every one of them is simulated afterwards. Off by default (ZH_DEBRIS_PER_FRAME /
++		// ZH_HULK_PER_FRAME unset), so retail/replay behaviour is unchanged.
++		static const bool experimentalRequested = zh::parseBoolean(getenv("ZH_EXPERIMENTAL_SINGLEPLAYER"), false);
++		const bool allowSimulationChanges = zh::experimentalSimulationAllowed(experimentalRequested,
++			TheGameLogic == nullptr || TheGameLogic->isInMultiplayerGame(),
++			TheGameLogic != nullptr && TheGameLogic->isInReplayGame());
++		static Int budgetFrame = -1;
++		static Int debrisThisFrame = 0;
++		static Int hulkThisFrame = 0;
++		static Int debrisBudget = -1;
++		static Int hulkBudget = -1;
++		if (debrisBudget < 0 || hulkBudget < 0)
++		{
++			const char *debrisValue = getenv("ZH_DEBRIS_PER_FRAME");
++			const char *hulkValue = getenv("ZH_HULK_PER_FRAME");
++			debrisBudget = debrisValue ? atoi(debrisValue) : 0;
++			hulkBudget = hulkValue ? atoi(hulkValue) : 0;
++			if (debrisBudget < 0) debrisBudget = 0;
++			if (hulkBudget < 0) hulkBudget = 0;
++		}
++		if (TheGameLogic != nullptr)
++		{
++			const Int frame = TheGameLogic->getFrame();
++			if (frame != budgetFrame)
++			{
++				budgetFrame = frame;
++				debrisThisFrame = 0;
++				hulkThisFrame = 0;
++			}
++		}
++
+ 		static const ThingTemplate* debrisTemplate = TheThingFactory->findTemplate("GenericDebris");
+ 
+ 		if (m_names.size() <= 0)
+@@ -1341,6 +1379,11 @@ protected:
+ 		}
+ 
+ 
++		// PROJECT PATCH (T-047): test-only timing of the debris/hulk creation loop.
++		LARGE_INTEGER oclT0, oclT1, oclFreq;
++		QueryPerformanceFrequency(&oclFreq);
++		QueryPerformanceCounter(&oclT0);
++
+ 		for (Int nn = 0; nn < m_debrisToGenerate; nn++)
+ 		{
+ 			Int pick = GameLogicRandomValue(0, m_names.size() - 1);
+@@ -1361,6 +1404,21 @@ protected:
+ 			if (!tmpl)
+ 				continue;
+ 
++			// PROJECT PATCH (T-041): budget cosmetic debris and dead-vehicle hulks only; other
++			// CreateObject nuggets (gameplay spawns) are never throttled.
++			if (!m_nameAreObjects)
++			{
++				if (allowSimulationChanges && debrisBudget > 0 && debrisThisFrame >= debrisBudget)
++					continue;
++				++debrisThisFrame;
++			}
++			else if (allowSimulationChanges && hulkBudget > 0 && strncmp(tmpl->getName().str(), "Dead", 4) == 0)
++			{
++				if (hulkThisFrame >= hulkBudget)
++					continue;
++				++hulkThisFrame;
++			}
++
+ 			Object *debris = TheThingFactory->newObject( tmpl, debrisOwner );
+ 			if( !debris )
+ 			{
+@@ -1432,9 +1490,33 @@ protected:
+ 			}
+ 		}
+ 
++		// PROJECT PATCH (T-047): report slow debris creation loops (ZH_OCL_LOG).
++		QueryPerformanceCounter(&oclT1);
++		{
++			const char *oclLogPath = getenv("ZH_OCL_LOG");
++			if (oclLogPath && *oclLogPath)
++			{
++				const Real ms = (Real)(oclT1.QuadPart - oclT0.QuadPart) * 1000.0f / (Real)oclFreq.QuadPart;
++				if (ms >= 2.0f)
++				{
++					FILE *oclLog = fopen(oclLogPath, "a");
++					if (oclLog != nullptr)
++					{
++						fprintf(oclLog, "ocl debris=%d objects=%d ms=%.1f\n",
++							m_debrisToGenerate, (int)m_names.size(), ms);
++						fclose(oclLog);
++					}
++				}
++			}
++		}
++
+ #if !(RETAIL_COMPATIBLE_CRC || PRESERVE_NO_XP_FROM_OCL_KILLS)
+-		ObjectID sinkID = sourceObj->getExperienceTracker()->getExperienceSink();
+-		firstObject->getExperienceTracker()->setExperienceSink(sinkID != INVALID_ID ? sinkID : sourceObj->getID());
++		// A per-frame budget can skip every object in this list.
++		if (firstObject != nullptr && sourceObj != nullptr)
++		{
++			ObjectID sinkID = sourceObj->getExperienceTracker()->getExperienceSink();
++			firstObject->getExperienceTracker()->setExperienceSink(sinkID != INVALID_ID ? sinkID : sourceObj->getID());
++		}
+ #endif
+ 
+ 		if (container)
+diff --git a/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/PartitionManager.cpp b/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/PartitionManager.cpp
+index 5f4f94c..ddd8ede 100644
+--- a/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/PartitionManager.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/PartitionManager.cpp
+@@ -48,8 +48,12 @@
+ //         Includes
+ //-----------------------------------------------------------------------------
+ #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
++#include <stdlib.h>
++#include <string.h>
+ 
+ #include "Common/ActionManager.h"
++#include "Common/OptimizationPolicy.h"
++#include "Common/OptionPreferences.h"	// T-064
+ #include "Common/DiscreteCircle.h"
+ #include "Common/GameEngine.h"
+ #include "Common/GameState.h"
+@@ -340,6 +344,40 @@ static Bool collideTest_Box_Sphere(const CollideInfo *a, const CollideInfo *b, C
+ static Bool collideTest_Box_Cylinder(const CollideInfo *a, const CollideInfo *b, CollideLocAndNormal *cinfo);
+ static Bool collideTest_Box_Box(const CollideInfo *a, const CollideInfo *b, CollideLocAndNormal *cinfo);
+ 
++// PROJECT PATCH (T-055): conservative bounding-sphere radius for the broadphase.
++// GeometryInfo::calcBoundingStuff() stores max(majorRadius, height/2) for cylinders, which is
++// smaller than the true half-diagonal sqrt(r^2 + (h/2)^2). Tall trees (r=3, h=15) therefore made
++// the broadphase reject real debris collisions. Use the true half-diagonal when it is larger;
++// boxes already store it, spheres are exact.
++static Real zhConservativeBoundingRadius(const GeometryInfo &g)
++{
++	Real radius = g.getBoundingSphereRadius();
++	if (g.getGeomType() == GEOMETRY_CYLINDER || g.getGeomType() == GEOMETRY_BOX)
++	{
++		const Real halfH = g.getMaxHeightAbovePosition() * 0.5f;
++		Real r2 = g.getMajorRadius() * g.getMajorRadius() + halfH * halfH;
++		if (g.getGeomType() == GEOMETRY_BOX)
++			r2 += g.getMinorRadius() * g.getMinorRadius();
++		const Real exact = (Real)sqrt((double)r2);
++		if (exact > radius)
++			radius = exact;
++	}
++	return radius;
++}
++
++// PROJECT PATCH (T-054): test-only collision-set accounting for the broadphase differential.
++// s_zhCandPairs counts contact pairs that survived the broadphase; s_zhCollPairs/s_zhCollHash
++// cover the pairs the narrow phase accepted (order-independent hash). Comparing the same frame
++// with ZH_DEBRIS_BROADPHASE=0 and =1 must give identical collisions while candidates drop.
++static unsigned int s_zhCandPairs = 0;
++static unsigned int s_zhCollPairs = 0;
++static unsigned int s_zhCollHash = 0;
++
++// PROJECT PATCH (T-055): test-only broadphase soundness probe.
++static int s_zhBpCheck = -1;
++static FILE *s_zhBpLog = nullptr;
++static unsigned int s_zhBpMisses = 0;
++
+ static Bool distCalcProc_CenterAndCenter_2D(const Coord3D *posA, const Object *objA, const Coord3D *posB, const Object *objB, Real& abDistSqr, Coord3D& abVec, Real maxDistSqr);
+ static Bool distCalcProc_BoundaryAndBoundary_2D(const Coord3D *posA, const Object *objA, const Coord3D *posB, const Object *objB, Real& abDistSqr, Coord3D& abVec, Real maxDistSqr);
+ static Bool distCalcProc_CenterAndCenter_3D(const Coord3D *posA, const Object *objA, const Coord3D *posB, const Object *objB, Real& abDistSqr, Coord3D& abVec, Real maxDistSqr);
+@@ -1965,6 +2003,34 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
+ 	}
+ #endif
+ 
++	// PROJECT PATCH (T-043): optional pair filter. Cell membership is still updated (so culling
++	// and gameplay queries stay correct), but collision pairs that cannot produce a useful
++	// result are not built: NO_COLLIDE objects, and debris-vs-debris pairs (cosmetic only).
++	static Int s_pairFilter = -1;
++	static Int s_broadphase = -1;
++	if (s_pairFilter < 0)
++	{
++		const char *filterValue = getenv("ZH_DEBRIS_PAIR_FILTER");
++		s_pairFilter = filterValue ? atoi(filterValue) : 0;
++		const char *broadValue = getenv("ZH_DEBRIS_BROADPHASE");
++		s_broadphase = broadValue ? atoi(broadValue) : (OptionPreferences().getDebrisBroadphaseEnabled() ? 1 : 0);	// T-079: env > Options.ini > off; singleplayer opt-in required
++		// PROJECT PATCH (T-055): test-only soundness probe.
++		const char *checkValue = getenv("ZH_BROADPHASE_CHECK");
++		s_zhBpCheck = checkValue ? atoi(checkValue) : 0;
++		const char *bpLogPath = getenv("ZH_BROADPHASE_CHECK_LOG");
++		if (s_zhBpCheck != 0 && bpLogPath && *bpLogPath)
++		{
++			s_zhBpLog = fopen(bpLogPath, "w");
++			if (s_zhBpLog != nullptr)
++				fprintf(s_zhBpLog, "frame,idThis,idThat,this,that,geomThis,geomThat,majorThis,heightThis,majorThat,heightThat,dist\n");
++		}
++	}
++	static const bool experimentalRequested = zh::parseBoolean(getenv("ZH_EXPERIMENTAL_SINGLEPLAYER"), false);
++	const bool allowSimulationChanges = zh::experimentalSimulationAllowed(experimentalRequested,
++		TheGameLogic == nullptr || TheGameLogic->isInMultiplayerGame(),
++		TheGameLogic != nullptr && TheGameLogic->isInReplayGame());
++	const Object *thisObj = getObject();
++
+ 	//DEBUG_LOG(("adding possible collision for %s",getObject()->getTemplate()->getName().str()));
+ 
+ 	CellAndObjectIntersection *myCoi = m_coiArray;
+@@ -1977,10 +2043,76 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
+ 		for (CellAndObjectIntersection *coi = cell->getFirstCoiInCell(); coi; coi = coi->getNextCoi())
+ 		{
+ 			PartitionData *that = coi->getModule();
+-			if (this != that)
++			if (this == that)
++				continue;
++
++			const Object *thatObj = that->getObject();
++
++			// PROJECT PATCH (T-046): conservative 3D broadphase. If the bounding spheres do not
++			// overlap, the narrow phase cannot report a collision, so the pair is skipped before
++			// hashing/allocation. This preserves all collisions and therefore all physics.
++			if (allowSimulationChanges && s_broadphase != 0 && thisObj != nullptr && thatObj != nullptr)
++			{
++				const Coord3D *p1 = thisObj->getPosition();
++				const Coord3D *p2 = thatObj->getPosition();
++				const GeometryInfo &geom1 = thisObj->getGeometryInfo();
++				const GeometryInfo &geom2 = thatObj->getGeometryInfo();
++				// PROJECT PATCH (T-055): a small relative+absolute margin absorbs float rounding and
++				// the narrow phase's tolerance. Without it, pairs touching at the analytic bound
++				// (e.g. a debris sphere exactly on a box corner) were still rejected while
++				// collidesWith() reported contact.
++				const Real radius = (zhConservativeBoundingRadius(geom1)
++					+ zhConservativeBoundingRadius(geom2)) * 1.02f + 0.25f;
++				const Real dx = p1->x - p2->x;
++				const Real dy = p1->y - p2->y;
++				// Object positions are the bottom center of the geometry, so compare
++				// bounding-sphere centers rather than the raw positions.
++				const Real dz = (p1->z + geom1.getZDeltaToCenterPosition())
++					- (p2->z + geom2.getZDeltaToCenterPosition());
++				const Real distSq = dx * dx + dy * dy + dz * dz;
++				if (distSq > radius * radius)
++				{
++					// PROJECT PATCH (T-055): soundness probe. With ZH_BROADPHASE_CHECK=1 every
++					// rejected pair is still run through the narrow phase; a true collision here
++					// is a real collision the broadphase dropped. Test-only (it defeats the
++					// optimisation), used to validate the reject test itself.
++					if (s_zhBpCheck != 0)
++					{
++						CollideLocAndNormal cinfo;
++						if (this->friend_collidesWith(that, &cinfo))
++						{
++							++s_zhBpMisses;
++							if (s_zhBpLog != nullptr)
++							{
++								fprintf(s_zhBpLog,
++									"%d,%u,%u,%s,%s,%d,%d,%.2f,%.2f,%.2f,%.2f,%.2f\n",
++									TheGameLogic ? TheGameLogic->getFrame() : -1,
++									thisObj->getID(), thatObj->getID(),
++									thisObj->getTemplate()->getName().str(),
++									thatObj->getTemplate()->getName().str(),
++									(int)geom1.getGeomType(), (int)geom2.getGeomType(),
++									geom1.getMajorRadius(), geom1.getMaxHeightAbovePosition(),
++									geom2.getMajorRadius(), geom2.getMaxHeightAbovePosition(),
++									Real(sqrt((double)distSq)));
++								fflush(s_zhBpLog);
++							}
++						}
++					}
++					continue;
++				}
++			}
++
++			if (allowSimulationChanges && s_pairFilter != 0 && thisObj != nullptr && thatObj != nullptr)
+ 			{
+-				ctList->addToContactList(this, that);
++				if (thisObj->isKindOf(KINDOF_NO_COLLIDE) || thatObj->isKindOf(KINDOF_NO_COLLIDE))
++					continue;
++				const char *thisName = thisObj->getTemplate()->getName().str();
++				const char *thatName = thatObj->getTemplate()->getName().str();
++				if (strcmp(thisName, "GenericDebris") == 0 && strcmp(thatName, "GenericDebris") == 0)
++					continue;
+ 			}
++
++			ctList->addToContactList(this, that);
+ 		}
+ 	}
+ }
+@@ -2439,6 +2571,7 @@ void PartitionContactList::addToContactList( PartitionData *obj, PartitionData *
+ 	ncd->m_obj = obj;
+ 	ncd->m_other = other;
+ 	ncd->m_hashValue = hashValue;
++	++s_zhCandPairs;	// PROJECT PATCH (T-054)
+ 
+ 	// add to hash table
+ 	ncd->m_nextHash = m_contactHash[ hashValue ];
+@@ -2526,6 +2659,12 @@ void PartitionContactList::resetContactList()
+ }
+ 
+ //-----------------------------------------------------------------------------
++// PROJECT PATCH (T-054): test-only collision-set accounting for the broadphase differential.
++// Counts the contact pairs that survive the broadphase and hashes the pairs that the narrow
++// phase actually accepts (order-independent), so ZH_DEBRIS_BROADPHASE=0 and =1 can be compared
++// on the same scenario: the collision set must be identical while candidates drop.
++// (Defined at file scope near the top so addToContactList can count new contacts.)
++
+ void PartitionContactList::processContactList()
+ {
+ 	for (PartitionContactListNode* cd = m_contactList; cd; cd = cd->m_next)
+@@ -2546,6 +2685,16 @@ void PartitionContactList::processContactList()
+ 				other->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) )
+ 			continue;
+ 
++		// PROJECT PATCH (T-054): a real narrow-phase collision. Hash the unordered id pair.
++		{
++			const UnsignedInt ida = obj->getID();
++			const UnsignedInt idb = other->getID();
++			const UnsignedInt lo = ida < idb ? ida : idb;
++			const UnsignedInt hi = ida < idb ? idb : ida;
++			++s_zhCollPairs;
++			s_zhCollHash ^= (lo * 2654435761u) ^ (hi * 2246822519u) ^ (lo + hi);
++		}
++
+ 		DEBUG_ASSERTCRASH(!(obj->isKindOf(KINDOF_IMMOBILE) && other->isKindOf(KINDOF_IMMOBILE)),
+ 			("we should never have collisions between two immobile things reported"));
+ 
+@@ -2767,6 +2916,40 @@ void PartitionManager::shutdown()
+ //DECLARE_PERF_TIMER(PartitionManager_update)
+ void PartitionManager::update()
+ {
++
++	// PROJECT PATCH (T-036): test-only partition phase timing (ZH_PARTITION_LOG=<csv>).
++	static FILE *partLog = nullptr;
++	static Bool partInit = FALSE;
++	static LARGE_INTEGER partFreq;
++	// PROJECT PATCH (T-054): collision-set differential log (ZH_COLLISION_LOG=<csv>).
++	static FILE *zhCollLog = nullptr;
++	if (!partInit)
++	{
++		partInit = TRUE;
++		const char *partPath = getenv("ZH_PARTITION_LOG");
++		if (partPath && *partPath)
++		{
++			partLog = fopen(partPath, "w");
++			if (partLog != nullptr)
++			{
++				fprintf(partLog, "frame,cellsMs,collMs,contactMs\n");
++				QueryPerformanceFrequency(&partFreq);
++			}
++		}
++		const char *collPath = getenv("ZH_COLLISION_LOG");
++		if (collPath && *collPath)
++		{
++			zhCollLog = fopen(collPath, "w");
++			if (zhCollLog != nullptr)
++				fprintf(zhCollLog, "frame,candidates,collisions,hash,bp_misses\n");
++		}
++	}
++	s_zhCandPairs = 0;
++	s_zhCollPairs = 0;
++	s_zhCollHash = 0;
++	Real cellsMs = 0.0f, collMs = 0.0f, contactMs = 0.0f;
++	LARGE_INTEGER partT0, partT1;
++
+ 	//USE_PERF_TIMER(PartitionManager_update)
+ 	{
+ #ifdef INTENSE_DEBUG
+@@ -2798,18 +2981,50 @@ void PartitionManager::update()
+ 			// detach it from the dirty list.
+ 			removeFromDirtyModules(dirty);
+ 
++
+ 			if (updateEm)
+ 			{
++				if (partLog) QueryPerformanceCounter(&partT0);
+ 				dirty->friend_updateCellsTouched();
++				if (partLog)
++				{
++					QueryPerformanceCounter(&partT1);
++					cellsMs += (Real)((double)(partT1.QuadPart - partT0.QuadPart) * 1000.0 / (double)partFreq.QuadPart);
++				}
+ 			}
+ 
+ 			if (collideEm && !dirty->getObject()->isKindOf(KINDOF_IMMOBILE))
+ 			{
++				if (partLog) QueryPerformanceCounter(&partT0);
+ 				dirty->addPossibleCollisions(&ctList);
++				if (partLog)
++				{
++					QueryPerformanceCounter(&partT1);
++					collMs += (Real)((double)(partT1.QuadPart - partT0.QuadPart) * 1000.0 / (double)partFreq.QuadPart);
++				}
+ 			}
+ 		}
+ 
++		if (partLog)
++		{
++			QueryPerformanceCounter(&partT0);
++		}
+ 		ctList.processContactList();
++		if (partLog)
++		{
++			QueryPerformanceCounter(&partT1);
++			contactMs += (Real)((double)(partT1.QuadPart - partT0.QuadPart) * 1000.0 / (double)partFreq.QuadPart);
++			fprintf(partLog, "%d,%.3f,%.3f,%.3f\n",
++				TheGameLogic ? TheGameLogic->getFrame() : -1, cellsMs, collMs, contactMs);
++			fflush(partLog);
++		}
++		if (zhCollLog)
++		{
++			fprintf(zhCollLog, "%d,%u,%u,%08X,%u\n",
++				TheGameLogic ? TheGameLogic->getFrame() : -1,
++				s_zhCandPairs, s_zhCollPairs, s_zhCollHash, s_zhBpMisses);
++			fflush(zhCollLog);
++		}
+ #ifdef INTENSE_DEBUG
+ 		DEBUG_ASSERTLOG(cc==0,("updated partition info for %d objects",cc));
+ #endif
+diff --git a/GeneralsMD/Code/GameEngine/Source/GameLogic/System/GameLogic.cpp b/GeneralsMD/Code/GameEngine/Source/GameLogic/System/GameLogic.cpp
+index 275119c..2bd1857 100644
+--- a/GeneralsMD/Code/GameEngine/Source/GameLogic/System/GameLogic.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameLogic/System/GameLogic.cpp
+@@ -28,10 +28,12 @@
+ ///////////////////////////////////////////////////////////////////////////////////////////////////
+ 
+ #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
++#include <string.h>
+ 
+ #include "Common/AudioAffect.h"
+ #include "Common/AudioHandleSpecialValues.h"
+ #include "Common/BuildAssistant.h"
++#include "Common/PerfAttrib.h"	// PROJECT PATCH (T-051): frame attribution values
+ #include "Common/CRCDebug.h"
+ #include "Common/FramePacer.h"
+ #include "Common/GameAudio.h"
+@@ -65,6 +67,7 @@
+ 
+ #include "GameClient/ControlBar.h"
+ #include "GameClient/Drawable.h"
++#include "GameClient/FXList.h"
+ #include "GameClient/GameClient.h"
+ #include "GameClient/GameText.h"
+ #include "GameClient/GUICallbacks.h"
+@@ -82,6 +85,7 @@
+ 
+ #include "GameLogic/AI.h"
+ #include "GameLogic/AIPathfind.h"
++#include "GameLogic/TerrainLogic.h"	// T-035: named waypoint anchor for the shadow-map scene
+ #include "GameLogic/CaveSystem.h"
+ #include "GameLogic/CrateSystem.h"
+ #include "GameLogic/FPUControl.h"
+@@ -471,6 +475,13 @@ void GameLogic::reset()
+ 	m_isScoringEnabled = TRUE;
+ 	m_showBehindBuildingMarkers = TRUE;
+ 	m_drawIconUI = TRUE;
++	// PROJECT PATCH (T-064): test-only icon-pass toggle. ZH_NO_ICON_UI=1 disables the per-drawable
++	// HUD icons (health bars, heal/repair icons, captions) so their cost can be isolated by A/B.
++	{
++		const char *noIconValue = getenv("ZH_NO_ICON_UI");
++		if (noIconValue && atoi(noIconValue) > 0)
++			m_drawIconUI = FALSE;
++	}
+ 	m_showDynamicLOD = TRUE;
+ 	m_scriptHulkMaxLifetimeOverride = -1;
+ 
+@@ -2535,7 +2546,17 @@ void GameLogic::loadMapINI( AsciiString mapName )
+ //DECLARE_PERF_TIMER(processDestroyList)
+ void GameLogic::processDestroyList()
+ {
+-	//USE_PERF_TIMER(processDestroyList)
++	std::vector<UpdateModulePtr> sleepyUpdatesForThisObject;
++	// USE_PERF_TIMER(processDestroyList)
++
++	// PROJECT PATCH (T-051): object count and (opt-in) slowest single destruction.
++	static LARGE_INTEGER zhDestroyFreq;
++	static bool zhDestroyFreqInit = false;
++	if (!zhDestroyFreqInit)
++	{
++		zhDestroyFreqInit = true;
++		QueryPerformanceFrequency(&zhDestroyFreq);
++	}
+ 
+ #if RTS_ZEROHOUR && RETAIL_COMPATIBLE_CRC
+ 	// TheSuperHackers @info Set m_classifyFenceZeroInit to true for the first object. It's set to false when this function exits.
+@@ -2547,6 +2568,10 @@ void GameLogic::processDestroyList()
+ 	{
+ 		Object* currentObject = (*iterator);
+ 
++		// PROJECT PATCH (T-051)
++		LARGE_INTEGER zhDestroyT0;
++		if (g_zhAttrSample) QueryPerformanceCounter(&zhDestroyT0);
++
+ #ifdef ALLOW_NONSLEEPY_UPDATES
+ 		for (std::list<UpdateModulePtr>::iterator it = m_normalUpdates.begin(); it != m_normalUpdates.end(); /* nothing */)
+ 		{
+@@ -2572,36 +2597,59 @@ void GameLogic::processDestroyList()
+ 			of the objects in the world every frame, we come out well ahead this way.)
+ 		*/
+ 
+-		const Int MAX_SUO = 256;
+-		UpdateModulePtr sleepyUpdatesForThisObject[MAX_SUO];
+-		Int numSUO = 0;
+-
+-		for (std::vector<UpdateModulePtr>::iterator it2 = m_sleepyUpdates.begin(); it2 != m_sleepyUpdates.end(); ++it2)
++		// T-079: collect this object's registered updates without a fixed module cap.
++		// Reuse storage across objects in this destruction batch to avoid per-object allocation.
++		sleepyUpdatesForThisObject.clear();
++		for (BehaviorModule **bm = currentObject->getBehaviorModules(); *bm != nullptr; ++bm)
+ 		{
+-			UpdateModulePtr u = *it2;
+-			if (u->friend_getObject() == currentObject && numSUO < MAX_SUO)
+-			{
+-				sleepyUpdatesForThisObject[numSUO++] = u;
+-			}
++			UpdateModuleInterface *ui = (*bm)->getUpdate();
++			if (ui == nullptr)
++				continue;
++			UpdateModulePtr u = static_cast<UpdateModulePtr>(ui);
++			if (u->friend_getIndexInLogic() >= 0)
++				sleepyUpdatesForThisObject.push_back(u);
+ 		}
+-
+-		for (--numSUO; numSUO >= 0; --numSUO)
++		std::sort(sleepyUpdatesForThisObject.begin(), sleepyUpdatesForThisObject.end(),
++			[](UpdateModulePtr a, UpdateModulePtr b) {
++				return a->friend_getIndexInLogic() > b->friend_getIndexInLogic();
++			});
++		for (UpdateModulePtr u : sleepyUpdatesForThisObject)
+ 		{
+-			// have to re-get idx each time since each call to erase might change others.
+-			Int idx = sleepyUpdatesForThisObject[numSUO]->friend_getIndexInLogic();
+-			DEBUG_ASSERTCRASH(m_sleepyUpdates[idx] == sleepyUpdatesForThisObject[numSUO], ("Hmm, expected update mismatch here"));
++			// Re-read the live index: erasing rebalances the scheduler heap.
++			Int idx = u->friend_getIndexInLogic();
++			DEBUG_ASSERTCRASH((idx >= 0 && idx < (Int)m_sleepyUpdates.size() && m_sleepyUpdates[idx] == u),
++				("expected registered update before removal"));
+ 			eraseSleepyUpdate(idx);
+-			DEBUG_ASSERTCRASH(sleepyUpdatesForThisObject[numSUO]->friend_getIndexInLogic() == -1, ("Hmm, expected index to be -1 here"));
++			DEBUG_ASSERTCRASH(u->friend_getIndexInLogic() == -1, ("expected unregistered update"));
+ 		}
+ 
+-
+ 		currentObject->removeFromList(&m_objList);//remove from object list
+ 
+ 		// remove object from lookup table
+ 		removeObjectFromLookupTable( currentObject );
+ 
++		// PROJECT PATCH (T-051): capture the template name before the object is destroyed.
++		char zhDestroyName[64] = { 0 };
++		if (g_zhAttrSample && currentObject->getTemplate() != nullptr)
++			strncpy(zhDestroyName, currentObject->getTemplate()->getName().str(), sizeof(zhDestroyName) - 1);
++
+ 		Object::friend_deleteInstance(currentObject);//actual delete
+ 
++		// PROJECT PATCH (T-051)
++		++g_zhAttrDestroyObjects;
++		if (g_zhAttrSample)
++		{
++			LARGE_INTEGER zhDestroyT1;
++			QueryPerformanceCounter(&zhDestroyT1);
++			const double ms = (double)(zhDestroyT1.QuadPart - zhDestroyT0.QuadPart) * 1000.0 / (double)zhDestroyFreq.QuadPart;
++			if (ms > g_zhAttrSlowestDestroyMs)
++			{
++				g_zhAttrSlowestDestroyMs = ms;
++				strncpy(g_zhAttrSlowestDestroy, zhDestroyName, sizeof(g_zhAttrSlowestDestroy) - 1);
++				g_zhAttrSlowestDestroy[sizeof(g_zhAttrSlowestDestroy) - 1] = 0;
++			}
++		}
++
+ #if RTS_ZEROHOUR && RETAIL_COMPATIBLE_CRC
+ 		TheAI->pathfinder()->m_classifyFenceZeroInit = false;
+ #endif
+@@ -3689,11 +3737,849 @@ extern __int64 Total_Create_Render_Obj_Time;
+ extern __int64 Total_Load_3D_Assets;
+ #endif
+ 
++// PROJECT PATCH (T-036): test-only logic phase timing (ZH_PERF_LOGIC=<csv>).
++// Separates object updates, AI, build assistant, partition manager, destroy processing and the
++// remaining tail so a wreck-field slowdown can be attributed without a full profiler.
++static FILE *s_zhLogicLog = nullptr;
++static Bool s_zhLogicInit = FALSE;
++static LARGE_INTEGER s_zhLogicFreq;
++static void zhLogicMark(LARGE_INTEGER *t) { if (s_zhLogicLog != nullptr || zhAttrLogging()) QueryPerformanceCounter(t); }
++
++// PROJECT PATCH (T-051): record the slowest update module of the frame (opt-in, ZH_ATTR_SAMPLE=1).
++static void zhAttrNoteUpdate(const UpdateModule *u, double ms)
++{
++	if (ms <= g_zhAttrSlowestUpdateMs)
++		return;
++	g_zhAttrSlowestUpdateMs = ms;
++	const AsciiString mod = KEYNAME(u->getModuleNameKey());
++	strncpy(g_zhAttrSlowestUpdate, mod.str(), sizeof(g_zhAttrSlowestUpdate) - 1);
++	g_zhAttrSlowestUpdate[sizeof(g_zhAttrSlowestUpdate) - 1] = 0;
++	const Object *obj = u->friend_getObject();
++	if (obj != nullptr && obj->getTemplate() != nullptr)
++	{
++		strncpy(g_zhAttrSlowestUpdateObject, obj->getTemplate()->getName().str(), sizeof(g_zhAttrSlowestUpdateObject) - 1);
++		g_zhAttrSlowestUpdateObject[sizeof(g_zhAttrSlowestUpdateObject) - 1] = 0;
++	}
++}
++static double zhLogicMs(const LARGE_INTEGER &a, const LARGE_INTEGER &b)
++{
++	return (double)(b.QuadPart - a.QuadPart) * 1000.0 / (double)s_zhLogicFreq.QuadPart;
++}
++
+ // ------------------------------------------------------------------------------------------------
+ /** Update all objects in the world by invoking their update() methods. */
+ // ------------------------------------------------------------------------------------------------
++// PROJECT PATCH (T-059): test-only mass heal. ZH_HEAL_PULSE=<amount> heals every spawned unit
++// every ZH_HEAL_INTERVAL logic frames (default 30). Also exported as a per-frame counter so the
++// frame log shows how many heal attempts happened.
++unsigned int g_zhHealPulses = 0;
++
++#include "PathfindHarness.inc"
++extern void zhPathfindFlushFrame(unsigned frame,long long updateTicks);
++
+ void GameLogic::update()
+ {
++    LARGE_INTEGER zhPfUpdateBegin{},zhPfUpdateEnd{};
++    const bool zhPfTiming=getenv("ZH_PF_FRAME")!=nullptr;
++    if(zhPfTiming) QueryPerformanceCounter(&zhPfUpdateBegin);
++    zhPathfindHarness(this);
++	// PROJECT PATCH (T-036/T-051): timer frequency and the phase CSV are initialised before any
++	// timed section, including the stress spawner that runs earlier in this function.
++	if (!s_zhLogicInit)
++	{
++		s_zhLogicInit = TRUE;
++		QueryPerformanceFrequency(&s_zhLogicFreq);
++		const char *logicPath = getenv("ZH_PERF_LOGIC");
++		if (logicPath && *logicPath)
++		{
++			s_zhLogicLog = fopen(logicPath, "w");
++			if (s_zhLogicLog != nullptr)
++				fprintf(s_zhLogicLog, "frame,updates,ai,build,partition,destroy,rest\n");
++		}
++	}
++
++	// PROJECT PATCH (T-015): test-only auto-start and deferred stress spawn.
++	{
++		static Bool autoStartDone = FALSE;
++		if (!autoStartDone && !isInGame())
++		{
++			const char *autoMap = getenv("ZH_MAP");
++			if (autoMap && *autoMap)
++			{
++				autoStartDone = TRUE;
++				TheWritableGlobalData->m_pendingFile.set(autoMap);
++				GameMessage *startMsg = TheMessageStream->appendMessage(GameMessage::MSG_NEW_GAME);
++				startMsg->appendIntegerArgument(GAME_SINGLE_PLAYER);
++				startMsg->appendIntegerArgument(DIFFICULTY_NORMAL);
++				startMsg->appendIntegerArgument(0);
++				// PROJECT PATCH (T-015): optional render FPS cap for headroom measurement.
++				const char *fpsValue = getenv("ZH_FPS");
++				if (fpsValue && atoi(fpsValue) > 0)
++					startMsg->appendIntegerArgument(atoi(fpsValue));
++				InitRandom(0);
++				if (TheShell)
++					TheShell->hideShell();
++			}
++		}
++	}
++	{
++		// PROJECT PATCH (T-036/T-048): scenario army spawner with dense packing and repeated
++		// spawn->nuke cycles. ZH_STRESS=<n> units (ZH_STRESS_MAX raises the 1,000 cap);
++		// ZH_STRESS_DENSE=1 packs a touching square grid using the template's bounding radius
++		// (override with ZH_STRESS_SPACING); ZH_STRESS_CYCLES=<n> respawns the army every
++		// ZH_STRESS_CYCLE_INTERVAL logic frames after clearing the previous cycle's survivors.
++		static Bool stressInit = FALSE;
++		static Bool stressArmed = FALSE;
++		static Int stressCount = 0;
++		static Bool stressDense = FALSE;
++		static Real stressSpacing = 0.0f;
++		static Int stressCycles = 1;
++		static Int stressCycleInterval = 240;
++		static Int cyclesSpawned = 0;
++		static Int cycleCounter = 0;
++		static Team *stressTeam = nullptr;
++		static const ThingTemplate *stressTemplate = nullptr;
++		static std::vector<ObjectID> stressIds;
++
++		if (!stressInit)
++		{
++			stressInit = TRUE;
++			const char *stressValue = getenv("ZH_STRESS");
++			stressCount = stressValue ? atoi(stressValue) : 0;
++			const char *maxValue = getenv("ZH_STRESS_MAX");
++			const Int stressMax = (maxValue && atoi(maxValue) > 0) ? atoi(maxValue) : 1000;
++			if (stressCount > stressMax)
++				stressCount = stressMax;
++			stressDense = getenv("ZH_STRESS_DENSE") && atoi(getenv("ZH_STRESS_DENSE")) > 0;
++			const char *spacingValue = getenv("ZH_STRESS_SPACING");
++			stressSpacing = (spacingValue && atof(spacingValue) > 0.0f) ? (Real)atof(spacingValue) : 0.0f;
++			const char *cyclesValue = getenv("ZH_STRESS_CYCLES");
++			stressCycles = (cyclesValue && atoi(cyclesValue) > 0) ? atoi(cyclesValue) : 1;
++			const char *cycleIntervalValue = getenv("ZH_STRESS_CYCLE_INTERVAL");
++			if (cycleIntervalValue && atoi(cycleIntervalValue) > 0)
++				stressCycleInterval = atoi(cycleIntervalValue);
++		}
++
++		// The cached team/template pointers and object IDs belong to the current map. Clear
++		// them when the game ends so a new map cannot dereference freed teams/templates or
++		// destroy unrelated objects whose IDs were reused.
++		if (!isInGame())
++		{
++			stressArmed = FALSE;
++			stressTeam = nullptr;
++			stressTemplate = nullptr;
++			stressIds.clear();
++			cyclesSpawned = 0;
++			cycleCounter = 0;
++		}
++
++		if (!stressArmed && stressCount > 0 && isInGame() && !isInShellGame())
++		{
++			Player *stressPlayer = ThePlayerList ? ThePlayerList->getLocalPlayer() : nullptr;
++			stressTeam = stressPlayer ? stressPlayer->getDefaultTeam() : nullptr;
++			if (!stressTeam && ThePlayerList)
++			{
++				Player *neutralPlayer = ThePlayerList->getNeutralPlayer();
++				if (neutralPlayer)
++					stressTeam = neutralPlayer->getDefaultTeam();
++			}
++			if (!stressTeam && TheGameLogic)
++			{
++				Object *seed = TheGameLogic->getFirstObject();
++				if (seed)
++					stressTeam = seed->getTeam();
++			}
++			stressTemplate = TheThingFactory->findTemplate(
++				getenv("ZH_STRESS_TEMPLATE") && *getenv("ZH_STRESS_TEMPLATE") ? getenv("ZH_STRESS_TEMPLATE") : "AmericaTankCrusader");
++			if (stressTeam && stressTemplate)
++				stressArmed = TRUE;
++		}
++
++		if (stressArmed && isInGame() && !isInShellGame())
++		{
++			// T-035 (ISSUE-0066): the game repositions the tactical camera after the first
++			// logic frame, which discarded a single lookAt and left the comparison scene
++			// pointing at empty water. Hold the requested comparison view for the early
++			// frames so the fixed camera and the spawned army genuinely coincide.
++			static Coord3D zhStressCameraPin = { 0, 0, 0 };
++			static Bool zhStressCameraPinActive = FALSE;
++			static Int zhStressCameraPinUntil = 0;
++			if (zhStressCameraPinActive)
++			{
++				if (TheGameLogic->getFrame() >= zhStressCameraPinUntil || TheTacticalView == nullptr)
++					zhStressCameraPinActive = FALSE;
++				else
++					TheTacticalView->lookAt(&zhStressCameraPin);
++			}
++			// T-035/ISSUE-0066: report live object/drawable state after the scene settles,
++			// so "created" is not mistaken for "rendered".
++			{
++				static Bool zhStressDiagDone = FALSE;
++				if (!zhStressDiagDone && TheGameLogic->getFrame() >= 120
++					&& zh::parseBoolean(getenv("ZH_STRESS_DIAG"), false))
++				{
++					zhStressDiagDone = TRUE;
++					Int alive = 0, destroyed = 0, drawables = 0, visible = 0, hidden = 0;
++					Object *sample = nullptr;
++					Drawable *sampleDrawable = nullptr;
++					for (std::vector<ObjectID>::size_type k = 0; k < stressIds.size(); ++k)
++					{
++						Object *obj = TheGameLogic->findObjectByID(stressIds[k]);
++						if (obj == nullptr)
++							continue;
++						++alive;
++						if (obj->isDestroyed())
++							++destroyed;
++						Drawable *draw = obj->getDrawable();
++						if (draw != nullptr)
++						{
++							++drawables;
++							if (draw->isDrawableEffectivelyHidden())
++								++hidden;
++							if (!draw->isVisible())
++								continue;
++							++visible;
++							if (sampleDrawable == nullptr)
++							{
++								sampleDrawable = draw;
++								sample = obj;
++							}
++						}
++					}
++					Coord3D sp = { 0, 0, 0 };
++					Coord3D vw = { 0, 0, 0 };
++					Int drawModules = 0;
++					Bool hasRenderObj = FALSE;
++					Real renderRadius = 0;
++					Coord3D renderPos = { 0, 0, 0 };
++					if (sampleDrawable != nullptr)
++					{
++						for (DrawModule **dm = sampleDrawable->getDrawModules(); dm != nullptr && *dm != nullptr; ++dm)
++							++drawModules;
++						Matrix3D roXf(true);
++						hasRenderObj = sampleDrawable->clientOnly_getFirstRenderObjInfo(&renderPos, &renderRadius, &roXf);
++					}
++					if (sample != nullptr)
++						sp = *sample->getPosition();
++					if (TheTacticalView != nullptr)
++						vw = TheTacticalView->getPosition();
++					FILE *dg = fopen("stress.log", "a");
++					if (dg != nullptr)
++					{
++						fprintf(dg, "diag frame=%d alive=%d destroyed=%d drawables=%d hidden=%d visible=%d modules=%d renderobj=%d radius=%.1f renderpos=%.1f,%.1f,%.1f sample=%.1f,%.1f,%.1f ground=%.1f view=%.1f,%.1f,%.1f\n",
++							TheGameLogic->getFrame(), alive, destroyed, drawables, hidden, visible,
++							drawModules, hasRenderObj ? 1 : 0, renderRadius,
++							renderPos.x, renderPos.y, renderPos.z,
++							sp.x, sp.y, sp.z,
++							sampleDrawable ? TheTerrainLogic->getGroundHeight(sp.x, sp.y) : 0.0f,
++							vw.x, vw.y, vw.z);
++						fclose(dg);
++					}
++				}
++			}
++			Bool spawnNow = FALSE;
++			const char *zhStressDelayValue = getenv("ZH_STRESS_DELAY");
++			const Int zhStressDelay = zhStressDelayValue ? atoi(zhStressDelayValue) : 0;
++			if (cyclesSpawned == 0)
++			{
++				// T-035 (ISSUE-0066): at frame 1 the tactical view still reports the map
++				// origin, so a camera-anchored spawn leaves the army off the map. Wait for
++				// the real start camera before the first cycle when a delay is requested.
++				spawnNow = TheGameLogic->getFrame() >= zhStressDelay;
++			}
++			else if (cyclesSpawned < stressCycles)
++			{
++				++cycleCounter;
++				if (cycleCounter >= stressCycleInterval)
++					spawnNow = TRUE;
++			}
++
++			if (spawnNow)
++			{
++				// T-035/ISSUE-0066: a quickstart scene without player vision can shroud the whole
++				// map, and fully obscured drawables are hidden even though they exist. Allow the
++				// measurement scene to disable shroud so created units are actually rendered.
++				if (zh::parseBoolean(getenv("ZH_STRESS_NOSHROUD"), false))
++					TheWritableGlobalData->m_shroudOn = FALSE;
++				// PROJECT PATCH (T-051): time the whole spawn (survivor cleanup + object creation).
++				LARGE_INTEGER zhSpawn0;
++				QueryPerformanceCounter(&zhSpawn0);
++				// Clear the previous cycle's survivors so every cycle starts from the same army.
++				Int cleaned = 0;
++				for (std::vector<ObjectID>::size_type i = 0; i < stressIds.size(); ++i)
++				{
++					Object *old = TheGameLogic->findObjectByID(stressIds[i]);
++					if (old != nullptr && !old->isDestroyed())
++					{
++						TheGameLogic->destroyObject(old);
++						++cleaned;
++					}
++				}
++				stressIds.clear();
++
++				++cyclesSpawned;
++				cycleCounter = 0;
++
++				// The template's cached bounding circle is not always computed (it read as 1.0),
++				// so derive the footprint radius from the geometry itself.
++				const GeometryInfo& geom = stressTemplate->getTemplateGeometryInfo();
++				Real radius = geom.getMajorRadius();
++				if (geom.getGeomType() == GEOMETRY_BOX)
++					radius = (Real)sqrt(geom.getMajorRadius() * geom.getMajorRadius() + geom.getMinorRadius() * geom.getMinorRadius());
++				if (radius < 1.0f)
++					radius = geom.getBoundingCircleRadius();
++				if (radius < 1.0f)
++					radius = 10.0f;
++				const Real spacing = stressSpacing > 0.0f ? stressSpacing : radius * 2.0f + 2.0f;
++				Int cols = stressDense ? (Int)ceil(sqrt((double)stressCount)) : 25;
++				if (cols < 1)
++					cols = 1;
++				const Int rows = (stressCount + cols - 1) / cols;
++				Coord3D center = TheTacticalView ? TheTacticalView->getPosition() : Coord3D{ 0, 0, 0 };
++                // T-035: optional centered stationary scene for shadow-map comparisons.
++                if (zh::parseBoolean(getenv("ZH_STRESS_CENTER_MAP"),false)) {
++                    Region3D extent; TheTerrainLogic->getExtent(&extent);
++                    center.x=(extent.lo.x+extent.hi.x)*0.5f;
++                    center.y=(extent.lo.y+extent.hi.y)*0.5f;
++                    // T-035: the geometric centre of northamerica is water, which culls the
++                    // whole scene (ISSUE-0066). Anchor to a named map waypoint on land instead,
++                    // so the measurement scene actually contains the spawned units.
++                    const char *waypointName=getenv("ZH_STRESS_CENTER_WAYPOINT");
++                    Waypoint *waypoint=nullptr;
++                    if(waypointName && *waypointName)
++                        waypoint=TheTerrainLogic->getWaypointByName(AsciiString(waypointName));
++                    else {
++                        waypoint=TheTerrainLogic->getWaypointByName(AsciiString("Player_1_Start"));
++                        if(!waypoint) waypoint=TheTerrainLogic->getWaypointByName(AsciiString("InitialCameraPosition"));
++                    }
++                    if(waypoint && waypoint->getLocation()) {
++                        center=*waypoint->getLocation();
++                    }
++                    center.z=TheTerrainLogic->getGroundHeight(center.x,center.y);
++                    if(TheTacticalView) TheTacticalView->lookAt(&center);
++                }
++				const Bool atCamera = getenv("ZH_STRESS_AT_CAMERA") && atoi(getenv("ZH_STRESS_AT_CAMERA")) > 0;
++
++				FILE *stressLog = fopen("stress.log", cyclesSpawned == 1 ? "w" : "a");
++				if (stressLog)
++				{
++					fprintf(stressLog, "spawn cycle=%d frame=%d count=%d cols=%d rows=%d spacing=%.2f radius=%.2f cleaned=%d\n",
++						cyclesSpawned, TheGameLogic->getFrame(), stressCount, cols, rows, spacing, radius, cleaned);
++					fclose(stressLog);
++				}
++
++				const Bool passable = zh::parseBoolean(getenv("ZH_STRESS_PASSABLE"), false);
++				for (Int i = 0; i < stressCount; ++i)
++				{
++					Coord3D pos = center;
++					if (!atCamera)
++					{
++						pos.x += ((Real)(i % cols) - (Real)(cols - 1) * 0.5f) * spacing;
++						pos.y += ((Real)(i / cols) - (Real)(rows - 1) * 0.5f) * spacing;
++					}
++					pos.z = TheTerrainLogic->getGroundHeight(pos.x, pos.y);
++					Object *obj = TheThingFactory->newObject(stressTemplate, stressTeam);
++					if (obj)
++					{
++						// T-035 (ISSUE-0066): the map centre is water, so an unadjusted grid is
++						// culled and the scene silently contains no tanks. Move each unit to the
++						// nearest passable ground using the same pathfinder step as T-022's
++						// fixture, keeping the workload dense and visible.
++						if (passable && obj->getAIUpdateInterface() != nullptr)
++						{
++							obj->setPosition(&pos);
++							zhPfCompleteObject(obj);
++							Bool adjusted = FALSE;
++							const Coord3D desired = pos;
++							for (Int attempt = 0; attempt < 121 && !adjusted; ++attempt)
++							{
++								pos = desired;
++								if (attempt)
++								{
++									pos.x += ((Real)(attempt % 11) - 5.0f) * 60.0f;
++									pos.y += ((Real)(attempt / 11) - 5.0f) * 60.0f;
++								}
++								adjusted = TheAI->pathfinder()->adjustDestination(
++									obj, obj->getAIUpdateInterface()->getLocomotorSet(), &pos);
++							}
++							pos.z = TheTerrainLogic->getGroundHeight(pos.x, pos.y);
++						}
++						obj->setPosition(&pos);
++						stressIds.push_back(obj->getID());
++					}
++				}
++				{
++					FILE *after = fopen("stress.log", "a");
++					if (after)
++					{
++						Coord3D first = { 0, 0, 0 };
++						Coord3D view = { 0, 0, 0 };
++						Object *firstObj = stressIds.empty() ? nullptr : TheGameLogic->findObjectByID(stressIds[0]);
++						if (firstObj != nullptr)
++							first = *firstObj->getPosition();
++						if (TheTacticalView != nullptr)
++							view = TheTacticalView->getPosition();
++						fprintf(after, "created=%u first=%.1f,%.1f,%.1f view=%.1f,%.1f,%.1f\n",
++							(unsigned)stressIds.size(), first.x, first.y, first.z, view.x, view.y, view.z);
++						fclose(after);
++					}
++				}
++				if (passable && TheTacticalView && !stressIds.empty())
++				{
++					// Centre the fixed comparison camera on the spawned grid and pull it back to
++					// the widest zoom, so both backends render the same dense, visible scene.
++					zhStressCameraPin = center;
++					zhStressCameraPinActive = TRUE;
++					const char *pinValue = getenv("ZH_STRESS_PIN_FRAMES");
++					const Int pinFrames = pinValue ? atoi(pinValue) : 240;
++					zhStressCameraPinUntil = TheGameLogic->getFrame() + (pinFrames > 0 ? pinFrames : 240);
++					TheTacticalView->setZoom(1.0f);
++					TheTacticalView->lookAt(&zhStressCameraPin);
++				}
++
++				// PROJECT PATCH (T-054): optional tall/mixed structures for the broadphase
++				// differential. They are immobile, so only units add candidate pairs; the point is
++				// to put tall geometry (large z-extent, sphere centre well above the ground) next
++				// to debris so a wrong sphere centre would drop real collisions.
++				{
++					const char *structName = getenv("ZH_STRESS_STRUCTS");
++					const char *structCountValue = getenv("ZH_STRESS_STRUCT_COUNT");
++					const Int structCount = structCountValue ? atoi(structCountValue) : 0;
++					const ThingTemplate *structTmpl = (structName && *structName)
++						? TheThingFactory->findTemplate(structName) : nullptr;
++					if (structTmpl != nullptr && structCount > 0)
++					{
++						const Real ring = (Real)cols * spacing * 0.5f + 60.0f;
++						FILE *slog = fopen("stress.log", "a");
++						if (slog)
++						{
++							fprintf(slog, "structs template=%s count=%d ring=%.1f\n", structName, structCount, ring);
++							fclose(slog);
++						}
++						for (Int i = 0; i < structCount; ++i)
++						{
++							Coord3D structPos = center;
++							const Real angle = (Real)(2.0 * 3.14159265358979 * (double)i / (double)structCount);
++							structPos.x += (Real)cos((double)angle) * ring;
++							structPos.y += (Real)sin((double)angle) * ring;
++							structPos.z = TheTerrainLogic->getGroundHeight(structPos.x, structPos.y);
++							Object *obj = TheThingFactory->newObject(structTmpl, stressTeam);
++							if (obj)
++							{
++								obj->setPosition(&structPos);
++								stressIds.push_back(obj->getID());
++							}
++						}
++					}
++				}
++
++				// PROJECT PATCH (T-051)
++				LARGE_INTEGER zhSpawn1;
++				QueryPerformanceCounter(&zhSpawn1);
++				g_zhAttrSpawnMs = (double)(zhSpawn1.QuadPart - zhSpawn0.QuadPart) * 1000.0 / (double)s_zhLogicFreq.QuadPart;
++				g_zhAttrSpawnObjects = stressCount;
++			}
++
++			// PROJECT PATCH (T-061): radius-heal stress. ZH_HEALERS=<template> respawns
++			// ZH_HEALER_COUNT copies of a radius-healing object around the camera every
++			// ZH_HEALER_INTERVAL logic frames. The stock one-shot marker
++			// (RepairVehiclesInArea_InvisibleMarker_Level3) heals every vehicle in radius 100 in a
++			// single update, which is the "hundreds of calculators in a short time" path.
++			{
++				static Int healerCount = -1;
++				static Int healerInterval = 30;
++				static Int healerLastSpawn = -100000;
++				static Real healerSpread = 150.0f;
++				static const ThingTemplate *healerTmpl = nullptr;
++				static Bool healerInit = FALSE;
++				if (!healerInit)
++				{
++					healerInit = TRUE;
++					const char *healerName = getenv("ZH_HEALERS");
++					healerCount = 0;
++					if (healerName && *healerName)
++					{
++						healerTmpl = TheThingFactory->findTemplate(healerName);
++						const char *countValue = getenv("ZH_HEALER_COUNT");
++						healerCount = (countValue && atoi(countValue) > 0) ? atoi(countValue) : 1;
++						const char *intervalValue = getenv("ZH_HEALER_INTERVAL");
++						if (intervalValue && atoi(intervalValue) > 0)
++							healerInterval = atoi(intervalValue);
++						const char *spreadValue = getenv("ZH_HEALER_SPREAD");
++						if (spreadValue && atof(spreadValue) > 0.0)
++							healerSpread = (Real)atof(spreadValue);
++					}
++				}
++				if (healerCount > 0 && healerTmpl != nullptr && isInGame() && !isInShellGame() && TheGameLogic != nullptr)
++				{
++					const Int now = (Int)TheGameLogic->getFrame();
++					if (now - healerLastSpawn >= healerInterval)
++					{
++						healerLastSpawn = now;
++						Team *healerTeam = (ThePlayerList && ThePlayerList->getLocalPlayer())
++							? ThePlayerList->getLocalPlayer()->getDefaultTeam() : nullptr;
++						const Int cols = (Int)ceil(sqrt((double)healerCount));
++						const Int rows = (healerCount + cols - 1) / cols;
++						Coord3D c = TheTacticalView ? TheTacticalView->getPosition() : Coord3D{ 0, 0, 0 };
++						for (Int i = 0; i < healerCount; ++i)
++						{
++							Coord3D pos = c;
++							pos.x += ((Real)(i % cols) - (Real)(cols - 1) * 0.5f) * healerSpread;
++							pos.y += ((Real)(i / cols) - (Real)(rows - 1) * 0.5f) * healerSpread;
++							pos.z = TheTerrainLogic->getGroundHeight(pos.x, pos.y);
++							Object *healer = TheThingFactory->newObject(healerTmpl, healerTeam);
++							if (healer != nullptr)
++								healer->setPosition(&pos);
++						}
++					}
++				}
++			}
++
++			// PROJECT PATCH (T-060): radiation stress. ZH_RADIATION=<n> keeps a grid of
++			// NukeRadiationFieldWeapon objects (25 RADIATION damage per 750 ms, radius 200) around
++			// the camera. Unlike ZH_NUKEFX_DAMAGE this does not wipe the army, so units stay alive
++			// and keep healing - the sustained state the user reports as slow. Fields respawn
++			// before their 30 s lifetime expires; ZH_RADIATION_SPREAD sets the grid spacing.
++			{
++				static Int radCount = -1;
++				static Int radLastSpawn = -100000;
++				static Real radSpread = 150.0f;
++				if (radCount < 0)
++				{
++					const char *radValue = getenv("ZH_RADIATION");
++					radCount = (radValue && atoi(radValue) > 0) ? atoi(radValue) : 0;
++					const char *spreadValue = getenv("ZH_RADIATION_SPREAD");
++					if (spreadValue && atof(spreadValue) > 0.0)
++						radSpread = (Real)atof(spreadValue);
++				}
++				if (radCount > 0 && isInGame() && !isInShellGame() && TheGameLogic != nullptr)
++				{
++					const Int now = (Int)TheGameLogic->getFrame();
++					if (now - radLastSpawn > 700)
++					{
++						const ThingTemplate *radTmpl = TheThingFactory->findTemplate("NukeRadiationFieldWeapon");
++						Team *radTeam = (ThePlayerList && ThePlayerList->getLocalPlayer())
++							? ThePlayerList->getLocalPlayer()->getDefaultTeam() : nullptr;
++						if (radTmpl != nullptr)
++						{
++							radLastSpawn = now;
++							const Int cols = (Int)ceil(sqrt((double)radCount));
++							const Int rows = (radCount + cols - 1) / cols;
++							Coord3D c = TheTacticalView ? TheTacticalView->getPosition() : Coord3D{ 0, 0, 0 };
++							for (Int i = 0; i < radCount; ++i)
++							{
++								Coord3D pos = c;
++								pos.x += ((Real)(i % cols) - (Real)(cols - 1) * 0.5f) * radSpread;
++								pos.y += ((Real)(i / cols) - (Real)(rows - 1) * 0.5f) * radSpread;
++								pos.z = TheTerrainLogic->getGroundHeight(pos.x, pos.y);
++								Object *field = TheThingFactory->newObject(radTmpl, radTeam);
++								if (field != nullptr)
++									field->setPosition(&pos);
++							}
++						}
++					}
++				}
++			}
++
++			// PROJECT PATCH (T-059): test-only mass heal. ZH_HEAL_PULSE=<amount> heals every
++			// spawned unit every ZH_HEAL_INTERVAL logic frames (default 30), which makes the
++			// engine show a heal icon over every unit - the state the user reports as slow.
++			{
++				static Int healAmount = -1;
++				static Int healInterval = 30;
++				static Int healCounter = 0;
++				if (healAmount < 0)
++				{
++					const char *healValue = getenv("ZH_HEAL_PULSE");
++					healAmount = (healValue && atoi(healValue) > 0) ? atoi(healValue) : 0;
++					const char *healIntervalValue = getenv("ZH_HEAL_INTERVAL");
++					if (healIntervalValue && atoi(healIntervalValue) > 0)
++						healInterval = atoi(healIntervalValue);
++				}
++				if (healAmount > 0 && isInGame() && !isInShellGame())
++				{
++					if (++healCounter >= healInterval)
++					{
++						healCounter = 0;
++						for (std::vector<ObjectID>::size_type i = 0; i < stressIds.size(); ++i)
++						{
++							Object *obj = TheGameLogic->findObjectByID(stressIds[i]);
++							if (obj != nullptr && !obj->isEffectivelyDead())
++							{
++								obj->attemptHealing((Real)healAmount, nullptr);
++								++g_zhHealPulses;	// PROJECT PATCH (T-059)
++							}
++						}
++					}
++				}
++			}
++		}
++	}
++	{
++		// PROJECT PATCH (T-015): test-only shadow toggle for cost attribution.
++		static Bool shadowToggleDone = FALSE;
++		if (!shadowToggleDone && isInGame() && !isInShellGame())
++		{
++			const char *shadowValue = getenv("ZH_NOSHADOW");
++			if (shadowValue && atoi(shadowValue) > 0)
++			{
++				shadowToggleDone = TRUE;
++				TheWritableGlobalData->m_useShadowVolumes = FALSE;
++				TheWritableGlobalData->m_useShadowDecals = FALSE;
++			}
++		}
++	}
++
++	{
++		// PROJECT PATCH (T-036): test-only steady-state controls. ZH_MAXPARTICLES overrides the
++		// runtime particle cap; ZH_STRESS_RESPAWN keeps a destruction scene populated so runs
++		// are comparable after the initial army has been destroyed.
++		static Bool extraInit = FALSE;
++		static Int maxParticles = -1;
++		static Int respawnCount = 0;
++		static Int respawnInterval = 60;
++		static Int respawnCounter = 0;
++		static Bool particlesApplied = FALSE;
++		if (!extraInit)
++		{
++			extraInit = TRUE;
++			const char *mp = getenv("ZH_MAXPARTICLES");
++			maxParticles = mp ? atoi(mp) : -1;
++			const char *rc = getenv("ZH_STRESS_RESPAWN");
++			respawnCount = rc ? atoi(rc) : 0;
++			const char *ri = getenv("ZH_STRESS_RESPAWN_INTERVAL");
++			if (ri && atoi(ri) > 0)
++				respawnInterval = atoi(ri);
++		}
++		if (isInGame() && !isInShellGame())
++		{
++			if (!particlesApplied && maxParticles >= 0)
++			{
++				particlesApplied = TRUE;
++				TheWritableGlobalData->m_maxParticleCount = maxParticles;
++			}
++			if (respawnCount > 0 && ++respawnCounter >= respawnInterval)
++			{
++				respawnCounter = 0;
++				Player *respawnPlayer = ThePlayerList ? ThePlayerList->getLocalPlayer() : nullptr;
++				Team *respawnTeam = respawnPlayer ? respawnPlayer->getDefaultTeam() : nullptr;
++				const ThingTemplate *respawnTemplate = TheThingFactory->findTemplate(
++					getenv("ZH_STRESS_TEMPLATE") && *getenv("ZH_STRESS_TEMPLATE") ? getenv("ZH_STRESS_TEMPLATE") : "AmericaTankCrusader");
++				if (respawnTeam && respawnTemplate && TheTerrainLogic)
++				{
++					Coord3D center = TheTacticalView ? TheTacticalView->getPosition() : Coord3D{ 0, 0, 0 };
++					for (Int i = 0; i < respawnCount; ++i)
++					{
++						Coord3D pos = center;
++						pos.x += (Real)((rand() % 2001) - 1000) * 0.5f;
++						pos.y += (Real)((rand() % 2001) - 1000) * 0.5f;
++						pos.z = TheTerrainLogic->getGroundHeight(pos.x, pos.y);
++						Object *obj = TheThingFactory->newObject(respawnTemplate, respawnTeam);
++						if (obj)
++							obj->setPosition(&pos);
++					}
++				}
++			}
++		}
++	}
++	{
++		// PROJECT PATCH (T-036): test-only nuke FX stress. Detonates a weapon FX list near the
++		// tactical camera and optionally kills objects inside the same radius, so the late-game
++		// "several nukes destroying an army" frame cost can be measured without UI input.
++		static Bool nukeInit = FALSE;
++		static Int nukeCount = 0;
++		static Int nukeInterval = 90;
++		static Real nukeRadius = 150.0f;
++		static Real nukeDamage = 0.0f;
++		static const FXList *nukeFx = nullptr;
++		static const char *nukeVictimName = nullptr;
++		static const ThingTemplate *realNuke = nullptr;
++		static Int nukeCounter = 0;
++		if (!nukeInit)
++		{
++			nukeInit = TRUE;
++			const char *nukeValue = getenv("ZH_NUKEFX");
++			nukeCount = nukeValue ? atoi(nukeValue) : 0;
++			const char *intervalValue = getenv("ZH_NUKEFX_INTERVAL");
++			if (intervalValue && atoi(intervalValue) > 0)
++				nukeInterval = atoi(intervalValue);
++			// Test-only phase offset: start the periodic counter part-way so a nuke lands
++			// mid-way through a spawn cycle instead of on the spawn frame.
++			const char *offsetValue = getenv("ZH_NUKEFX_OFFSET");
++			if (offsetValue && atoi(offsetValue) > 0)
++				nukeCounter = atoi(offsetValue);
++			const char *radiusValue = getenv("ZH_NUKEFX_RADIUS");
++			if (radiusValue && atof(radiusValue) > 0.0)
++				nukeRadius = (Real)atof(radiusValue);
++			const char *damageValue = getenv("ZH_NUKEFX_DAMAGE");
++			if (damageValue)
++				nukeDamage = (Real)atof(damageValue);
++			const char *nameValue = getenv("ZH_NUKEFX_NAME");
++			const char *fxName = (nameValue && *nameValue) ? nameValue : "WeaponFX_NukeCannon";
++			nukeFx = TheFXListStore ? TheFXListStore->findFXList(fxName) : nullptr;
++			const char *victimName = getenv("ZH_NUKEFX_VICTIM");
++			if (victimName == nullptr || *victimName == 0)
++				victimName = getenv("ZH_STRESS_TEMPLATE");
++			if (victimName && stricmp(victimName, "any") == 0)
++				nukeVictimName = nullptr;
++			else
++				nukeVictimName = (victimName && *victimName) ? victimName : "AmericaTankCrusader";
++			// PROJECT PATCH (T-036): optional real nuke warhead. Spawning this object and killing
++			// it runs the actual NeutronMissileSlowDeathBehavior (FX_Nuke, 8 blast waves, damage,
++			// topple, push) instead of a direct FX list.
++			const char *realName = getenv("ZH_REALNUKE");
++			realNuke = (realName && *realName && TheThingFactory) ? TheThingFactory->findTemplate(realName) : nullptr;
++			// Only touch the working directory when the nuke stress mode is actually enabled.
++			if (nukeCount > 0)
++			{
++				FILE *nukeLog = fopen("nukefx.log", "w");
++				if (nukeLog)
++				{
++					fprintf(nukeLog, "count=%d interval=%d radius=%.1f damage=%.1f fx=%p real=%p\n",
++						nukeCount, nukeInterval, nukeRadius, nukeDamage, (const void *)nukeFx, (const void *)realNuke);
++					fclose(nukeLog);
++				}
++			}
++		}
++		if (nukeCount > 0 && (nukeFx != nullptr || realNuke != nullptr) && isInGame() && !isInShellGame())
++		{
++			if (++nukeCounter >= nukeInterval)
++			{
++				// PROJECT PATCH (T-047): test-only timing of one scripted nuke tick (FX + damage).
++				LARGE_INTEGER nukeT0, nukeT1, nukeFreq;
++				QueryPerformanceFrequency(&nukeFreq);
++				QueryPerformanceCounter(&nukeT0);
++				nukeCounter = 0;
++				g_zhAttrNukeTicks = nukeCount;	// PROJECT PATCH (T-051)
++				{
++					FILE *nukeCycleLog = fopen("stress.log", "a");
++					if (nukeCycleLog)
++					{
++						fprintf(nukeCycleLog, "nuke frame=%d warheads=%d radius=%.1f real=%d\n",
++							TheGameLogic->getFrame(), nukeCount, nukeRadius, realNuke ? 1 : 0);
++						fclose(nukeCycleLog);
++					}
++				}
++				Coord3D center = TheTacticalView ? TheTacticalView->getPosition() : Coord3D{ 0, 0, 0 };
++				for (Int i = 0; i < nukeCount; ++i)
++				{
++					Coord3D pos = center;
++					pos.x += (Real)((rand() % 2001) - 1000) * 0.001f * nukeRadius;
++					pos.y += (Real)((rand() % 2001) - 1000) * 0.001f * nukeRadius;
++					pos.z = TheTerrainLogic ? TheTerrainLogic->getGroundHeight(pos.x, pos.y) : center.z;
++					if (realNuke != nullptr)
++					{
++						Team *nukeTeam = (ThePlayerList && ThePlayerList->getLocalPlayer())
++							? ThePlayerList->getLocalPlayer()->getDefaultTeam() : nullptr;
++						Object *nukeObject = TheThingFactory->newObject(realNuke, nukeTeam);
++						if (nukeObject != nullptr)
++						{
++							nukeObject->setPosition(&pos);
++							nukeObject->kill();
++						}
++					}
++					else
++					{
++						FXList::doFXPos(nukeFx, &pos);
++					}
++					if (realNuke == nullptr && nukeDamage > 0.0f && TheGameLogic)
++					{
++						ObjectID victims[1024];
++						Int victimCount = 0;
++						for (Object *obj = TheGameLogic->getFirstObject(); obj && victimCount < 1024; obj = obj->getNextObject())
++						{
++							if (nukeVictimName && stricmp(obj->getTemplate()->getName().str(), nukeVictimName) != 0)
++								continue;
++							const Coord3D *objPos = obj->getPosition();
++							Real dx = objPos->x - pos.x;
++							Real dy = objPos->y - pos.y;
++							if (dx * dx + dy * dy <= nukeRadius * nukeRadius)
++								victims[victimCount++] = obj->getID();
++						}
++						for (Int v = 0; v < victimCount; ++v)
++						{
++							Object *victim = TheGameLogic->findObjectByID(victims[v]);
++							if (victim)
++							{
++								DamageInfo damageInfo;
++								damageInfo.in.m_sourceID = INVALID_ID;
++								damageInfo.in.m_damageType = DAMAGE_EXPLOSION;
++								damageInfo.in.m_deathType = DEATH_NORMAL;
++								damageInfo.in.m_amount = nukeDamage;
++								victim->attemptDamage(&damageInfo);
++							}
++						}
++					}
++				}
++
++				// PROJECT PATCH (T-047): report slow scripted nuke ticks (ZH_OCL_LOG).
++				QueryPerformanceCounter(&nukeT1);
++				{
++					const char *oclLogPath = getenv("ZH_OCL_LOG");
++					if (oclLogPath && *oclLogPath)
++					{
++						const Real ms = (Real)(nukeT1.QuadPart - nukeT0.QuadPart) * 1000.0f / (Real)nukeFreq.QuadPart;
++						if (ms >= 2.0f)
++						{
++							FILE *oclLog = fopen(oclLogPath, "a");
++							if (oclLog != nullptr)
++							{
++								fprintf(oclLog, "nuketick count=%d ms=%.1f\n", nukeCount, ms);
++								fclose(oclLog);
++							}
++						}
++					}
++				}
++			}
++		}
++	}
++
++	{
++		// PROJECT PATCH (T-036): object census for destruction attribution. Logs total objects and
++		// how many are hulks / generic debris every 60 logic frames (ZH_OBJLOG=<path>).
++		static Bool censusInit = FALSE;
++		static FILE *censusFile = nullptr;
++		static Int censusCounter = 0;
++		if (!censusInit)
++		{
++			censusInit = TRUE;
++			const char *censusPath = getenv("ZH_OBJLOG");
++			if (censusPath && *censusPath)
++				censusFile = fopen(censusPath, "w");
++		}
++		if (censusFile && TheGameLogic && isInGame() && !isInShellGame())
++		{
++			if (++censusCounter >= 60)
++			{
++				censusCounter = 0;
++				Int totalObjects = 0, hulkObjects = 0, debrisObjects = 0;
++				Int debrisDrawables = 0, debrisVisible = 0;
++				for (Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject())
++				{
++					++totalObjects;
++					const char *name = obj->getTemplate()->getName().str();
++					if (strstr(name, "Hulk") != nullptr)
++						++hulkObjects;
++					else if (strcmp(name, "GenericDebris") == 0)
++					{
++						++debrisObjects;
++						Drawable *drawable = obj->getDrawable();
++						if (drawable != nullptr)
++						{
++							++debrisDrawables;
++							if (drawable->isVisible())
++								++debrisVisible;
++						}
++					}
++				}
++				fprintf(censusFile, "frame=%d total=%d hulks=%d debris=%d debrisD=%d debrisV=%d\n",
++					TheGameLogic->getFrame(), totalObjects, hulkObjects, debrisObjects,
++					debrisDrawables, debrisVisible);
++				fflush(censusFile);
++			}
++		}
++	}
++
+ 	USE_PERF_TIMER(GameLogic_update)
+ 	PROFILER_SECTION_COLOR(0x4CAF50);
+ 
+@@ -3814,6 +4700,10 @@ void GameLogic::update()
+ 		processCommandList( TheCommandList );
+ 	}
+ 
++	LARGE_INTEGER zlUpdates0, zlUpdates1, zlAi0, zlAi1, zlBuild0, zlBuild1;
++	LARGE_INTEGER zlPartition0, zlPartition1, zlDestroy0, zlDestroy1, zlEnd0, zlEnd1;
++	zhLogicMark(&zlUpdates0);
++
+ #ifdef ALLOW_NONSLEEPY_UPDATES
+ 	{
+ 		for (std::list<UpdateModulePtr>::const_iterator it = m_normalUpdates.begin(); it != m_normalUpdates.end(); ++it)
+@@ -3834,6 +4724,9 @@ void GameLogic::update()
+ 
+ 				m_curUpdateModule = u;
+ 
++				LARGE_INTEGER zhUp0;
++				if (g_zhAttrSample) QueryPerformanceCounter(&zhUp0);
++
+ 				#ifdef DEBUG_LOGGING
+ 					UpdateSleepTime sleep = u->update();
+ 					DEBUG_ASSERTCRASH(sleep == UPDATE_SLEEP_NONE, ("you must return SLEEPNONE from all nonsleepy modules"));
+@@ -3841,6 +4734,13 @@ void GameLogic::update()
+ 					u->update();
+ 				#endif
+ 
++				if (g_zhAttrSample)
++				{
++					LARGE_INTEGER zhUp1;
++					QueryPerformanceCounter(&zhUp1);
++					zhAttrNoteUpdate(u, (double)(zhUp1.QuadPart - zhUp0.QuadPart) * 1000.0 / (double)s_zhLogicFreq.QuadPart);
++				}
++
+ 				m_curUpdateModule = nullptr;
+ 			}
+ 		}
+@@ -3883,11 +4783,21 @@ void GameLogic::update()
+ 				//DEBUG_LOG(("calling update %08lx (%d %d)...",u,u->friend_getNextCallFrame(),u->friend_getNextCallPhase()));
+ 				m_curUpdateModule = u;
+ 
++				LARGE_INTEGER zhUp0;
++				if (g_zhAttrSample) QueryPerformanceCounter(&zhUp0);
++
+ 				sleepLen = u->update();
+ 				DEBUG_ASSERTCRASH(sleepLen > 0, ("you may not return 0 from update"));
+ 				if (sleepLen < 1)
+ 					sleepLen = UPDATE_SLEEP_NONE;
+ 
++				if (g_zhAttrSample)
++				{
++					LARGE_INTEGER zhUp1;
++					QueryPerformanceCounter(&zhUp1);
++					zhAttrNoteUpdate(u, (double)(zhUp1.QuadPart - zhUp0.QuadPart) * 1000.0 / (double)s_zhLogicFreq.QuadPart);
++				}
++
+ 				m_curUpdateModule = nullptr;
+ 
+ 			}
+@@ -3899,21 +4809,29 @@ void GameLogic::update()
+ 	}
+ 
+ 	validateSleepyUpdate();
++	zhLogicMark(&zlUpdates1);
++	zhLogicMark(&zlAi0);
+ 
+ 	// update the Artificial Intelligence system
+ 	{
+ 		TheAI->UPDATE();
+ 	}
++	zhLogicMark(&zlAi1);
++	zhLogicMark(&zlBuild0);
+ 
+ 	// production updates
+ 	{
+ 		TheBuildAssistant->UPDATE();
+ 	}
++	zhLogicMark(&zlBuild1);
++	zhLogicMark(&zlPartition0);
+ 
+ 	// update partition info
+ 	{
+ 		ThePartitionManager->UPDATE();
+ 	}
++	zhLogicMark(&zlPartition1);
++	zhLogicMark(&zlDestroy0);
+ 
+ 	//
+ 	// End of frame clean-up
+@@ -3921,6 +4839,8 @@ void GameLogic::update()
+ 
+ 	// destroy all pending objects
+ 	processDestroyList();
++	zhLogicMark(&zlDestroy1);
++	zhLogicMark(&zlEnd0);
+ 
+ 	// reset the command list, destroying all messages
+ 	TheCommandList->reset();
+@@ -3929,6 +4849,7 @@ void GameLogic::update()
+ 	TheLocomotorStore->UPDATE();
+ 	TheVictoryConditions->UPDATE();
+ 
++	// T-079: always service expiry; disabled masks can be restored directly by snapshots.
+ 	{
+ 		//Handle disabled statii (and re-enable objects once frame matches)
+ 		for( Object *obj = m_objList; obj; obj = obj->getNextObject() )
+@@ -3945,6 +4866,29 @@ void GameLogic::update()
+ 
+ 
+ 	// increment world time
++	zhLogicMark(&zlEnd1);
++	// PROJECT PATCH (T-051): publish the logic breakdown for the frame attribution row.
++	g_zhAttrLogicUpdatesMs = zhLogicMs(zlUpdates0, zlUpdates1);
++	g_zhAttrLogicAiMs = zhLogicMs(zlAi0, zlAi1);
++	g_zhAttrLogicBuildMs = zhLogicMs(zlBuild0, zlBuild1);
++	g_zhAttrLogicPartitionMs = zhLogicMs(zlPartition0, zlPartition1);
++	g_zhAttrLogicDestroyMs = zhLogicMs(zlDestroy0, zlDestroy1);
++	g_zhAttrLogicRestMs = zhLogicMs(zlEnd0, zlEnd1);
++	if (s_zhLogicLog != nullptr)
++	{
++		fprintf(s_zhLogicLog, "%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n",
++			m_frame,
++			zhLogicMs(zlUpdates0, zlUpdates1),
++			zhLogicMs(zlAi0, zlAi1),
++			zhLogicMs(zlBuild0, zlBuild1),
++			zhLogicMs(zlPartition0, zlPartition1),
++			zhLogicMs(zlDestroy0, zlDestroy1),
++			zhLogicMs(zlEnd0, zlEnd1));
++		fflush(s_zhLogicLog);
++	}
++	if(zhPfTiming) QueryPerformanceCounter(&zhPfUpdateEnd);
++	zhPathfindFlushFrame(m_frame,zhPfUpdateEnd.QuadPart-zhPfUpdateBegin.QuadPart);
++    zhPfLogCrc(this);
+ 	if (!m_startNewGame)
+ 	{
+ 		m_frame++;
+diff --git a/GeneralsMD/Code/GameEngine/Source/GameLogic/System/PathfindHarness.inc b/GeneralsMD/Code/GameEngine/Source/GameLogic/System/PathfindHarness.inc
+new file mode 100644
+index 0000000..b77a645
+--- /dev/null
++++ b/GeneralsMD/Code/GameEngine/Source/GameLogic/System/PathfindHarness.inc
+@@ -0,0 +1,151 @@
++// T-022: singleplayer-only deterministic movement workload, included by GameLogic.cpp.
++#include "Common/OptimizationPolicy.h"
++static int zhPfInt(const char *key, int fallback, int low, int high) {
++    const char *p=getenv(key); int v=p?atoi(p):fallback;
++    return v<low?low:(v>high?high:v);
++}
++static void zhPfCompleteObject(Object *obj) {
++    for(BehaviorModule **module=obj->getBehaviorModules();*module;++module) {
++        CreateModuleInterface *create=(*module)->getCreate(); if(create)create->onBuildComplete();
++    }
++    TheAI->pathfinder()->addObjectToPathfindMap(obj);
++}
++static void zhPathfindHarness(GameLogic *logic) {
++    static std::vector<ObjectID> units, blockers;
++    static unsigned lastFrame=0, startFrame=0, wave=0, seed=1;
++    static bool spawned=false;
++    static Coord3D center{},choke{};
++    const bool permitted=zh::experimentalSimulationAllowed(
++        zh::parseBoolean(getenv("ZH_EXPERIMENTAL_SINGLEPLAYER"),false),
++        logic->isInMultiplayerGame(),logic->isInReplayGame());
++    if(!logic->isInGame() || logic->isInShellGame() || !permitted || logic->getFrame()<lastFrame) {
++        units.clear(); blockers.clear(); spawned=false; wave=0;
++    }
++    lastFrame=logic->getFrame();
++    if(!permitted || !logic->isInGame() || logic->isInShellGame() || !getenv("ZH_PF_GROUPS")) return;
++    const int groups=zhPfInt("ZH_PF_GROUPS",8,0,32), size=zhPfInt("ZH_PF_GROUP_SIZE",25,1,50);
++    if(!groups) return;
++    const unsigned interval=zhPfInt("ZH_PF_INTERVAL",90,1,3600);
++    if(!spawned) {
++        Player *player=ThePlayerList?ThePlayerList->getLocalPlayer():nullptr;
++        Team *team=player?player->getDefaultTeam():nullptr;
++        const ThingTemplate *mobile=TheThingFactory->findTemplate("AmericaTankCrusader");
++        const ThingTemplate *building=TheThingFactory->findTemplate("AmericaPowerPlant");
++        if(!team || !mobile || !building || !TheTacticalView) return;
++        Region3D extent;
++        TheTerrainLogic->getExtent(&extent);
++        center.x=(extent.lo.x+extent.hi.x)*0.5f;
++        center.y=(extent.lo.y+extent.hi.y)*0.5f;
++        center.z=TheTerrainLogic->getGroundHeight(center.x,center.y);
++        choke=center; choke.y+=120.0f;
++        TheTacticalView->lookAt(&center);
++        const char *spawnPath=getenv("ZH_PF_SPAWN_LOG");
++        FILE *spawnLog=spawnPath&&*spawnPath?fopen(spawnPath,"w"):nullptr;
++        if(spawnLog) fprintf(spawnLog,"kind,object,x,y,loX,loY,hiX,hiY,adjusted\n");
++        seed=static_cast<unsigned>(zhPfInt("ZH_PF_SEED",1,0,2147483647));
++        const int count=zhPfInt("ZH_PF_BLOCKERS",0,0,16);
++        for(int i=0;i<count;++i) {
++            Coord3D p=center; p.y+=(i-(count-1)*0.5f)*100.0f;
++            p.z=TheTerrainLogic->getGroundHeight(p.x,p.y);
++            Object *obj=TheThingFactory->newObject(building,team);
++            if(obj) {
++                obj->setPosition(&p); zhPfCompleteObject(obj); blockers.push_back(obj->getID());
++                if(spawnLog) fprintf(spawnLog,"blocker,%u,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,0\n",obj->getID(),p.x,p.y,extent.lo.x,extent.lo.y,extent.hi.x,extent.hi.y);
++            }
++        }
++        // With at least two blockers the convergence point is the actual wall opening,
++        // rather than an arbitrary camera/map point. Log the gap dimensions and path-cell state.
++        if(blockers.size()>=2) {
++            const unsigned low=(static_cast<unsigned>(blockers.size())-1)/2;
++            Object *a=logic->findObjectByID(blockers[low]);
++            Object *b=logic->findObjectByID(blockers[low+1]);
++            if(a&&b) { choke=*a->getPosition();choke.y=(a->getPosition()->y+b->getPosition()->y)*0.5f; }
++        }
++        for(int g=0;g<groups;++g) for(int j=0;j<size;++j) {
++            Coord3D p=center;
++            p.x+=(g%2?-1.0f:1.0f)*(300.0f+(j%5)*25.0f);
++            p.y+=(g/2-(groups/2-1)*0.5f)*150.0f+(j/5-2)*25.0f;
++            p.z=TheTerrainLogic->getGroundHeight(p.x,p.y);
++            Object *obj=TheThingFactory->newObject(mobile,team);
++            if(obj) {
++                obj->setPosition(&p);
++                zhPfCompleteObject(obj);
++                bool adjusted=false;
++                if(obj->getAIUpdateInterface()) {
++                    const Coord3D desired=p;
++                    for(int attempt=0;attempt<121 && !adjusted;++attempt) {
++                        p=desired;
++                        if(attempt) {
++                            p.x+=(attempt%11-5)*60.0f;
++                            p.y+=(attempt/11-5)*60.0f;
++                        }
++                        if(p.x<extent.lo.x+30 || p.y<extent.lo.y+30 || p.x>extent.hi.x-30 || p.y>extent.hi.y-30) continue;
++                        adjusted=TheAI->pathfinder()->adjustDestination(obj,obj->getAIUpdateInterface()->getLocomotorSet(),&p);
++                    }
++                }
++                if(adjusted) TheAI->pathfinder()->updateGoal(obj,&p,LAYER_GROUND);
++                p.z=TheTerrainLogic->getGroundHeight(p.x,p.y); obj->setPosition(&p);
++                units.push_back(obj->getID());
++                if(spawnLog) fprintf(spawnLog,"unit,%u,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%u\n",obj->getID(),p.x,p.y,extent.lo.x,extent.lo.y,extent.hi.x,extent.hi.y,adjusted);
++            }
++        }
++        if(spawnLog) fclose(spawnLog);
++        const char *fixturePath=getenv("ZH_PF_FIXTURE_LOG");
++        FILE *fixture=fixturePath&&*fixturePath?fopen(fixturePath,"w"):nullptr;
++        if(fixture) {
++            Object *unit=units.empty()?nullptr:logic->findObjectByID(units[0]);
++            Object *blocker=blockers.empty()?nullptr:logic->findObjectByID(blockers[blockers.size()/2]);
++            bool chokePassable=false,buildingPassable=true;
++            if(unit&&unit->getAIUpdateInterface()) {
++                const LocomotorSet &loco=unit->getAIUpdateInterface()->getLocomotorSet();
++                chokePassable=TheAI->pathfinder()->validMovementPosition(false,LAYER_GROUND,loco,&choke);
++                if(blocker) buildingPassable=TheAI->pathfinder()->validMovementPosition(false,LAYER_GROUND,loco,blocker->getPosition());
++            }
++            const GeometryInfo &geometry=building->getTemplateGeometryInfo();
++            fprintf(fixture,"blockers,chokeX,chokeY,chokePassable,buildingPassable,buildingMajor,buildingMinor,spacing\n");
++            fprintf(fixture,"%u,%.9g,%.9g,%u,%u,%.9g,%.9g,100\n",static_cast<unsigned>(blockers.size()),choke.x,choke.y,chokePassable,buildingPassable,geometry.getMajorRadius(),geometry.getMinorRadius());
++            fclose(fixture);
++        }
++        spawned=true; startFrame=logic->getFrame(); wave=0;
++    }
++    if((logic->getFrame()-startFrame)%interval) return;
++    const char *p=getenv("ZH_PF_COMMAND_LOG");
++    FILE *log=p&&*p?fopen(p,wave?"a":"w"):nullptr;
++    if(log && !wave) fprintf(log,"frame,wave,phase,object,fromX,fromY,toX,toY\n");
++    for(unsigned i=0;i<units.size();++i) {
++        Object *obj=logic->findObjectByID(units[i]);
++        if(!obj || obj->isEffectivelyDead() || !obj->getAIUpdateInterface()) continue;
++        Coord3D target=center;
++        const unsigned phase=wave%4;
++        // Local PRNG never consumes the simulation RNG; all commands follow object creation order.
++        seed=seed*1664525u+1013904223u;
++        const Real jitter=static_cast<Real>((seed>>16)%21)-10.0f;
++        const int g=i/size;
++        if(phase==0) { target.x+=(g%2?1.0f:-1.0f)*350.0f; target.y+=(g/2-(groups/2-1)*0.5f)*150.0f+jitter; }
++        if(phase==1) { target=choke; target.x+=jitter; }
++        if(phase==2 && !blockers.empty()) {
++            Object *b=logic->findObjectByID(blockers[blockers.size()/2]); if(b) target=*b->getPosition();
++        } else if(phase==2) { target.x+=jitter; }
++        if(phase==3) {
++            Object *b=logic->findObjectByID(units[(i+size)%units.size()]);
++            if(b) target=*b->getPosition();
++        }
++        target.z=TheTerrainLogic->getGroundHeight(target.x,target.y);
++        if(log) fprintf(log,"%u,%u,%u,%u,%.9g,%.9g,%.9g,%.9g\n",logic->getFrame(),wave,phase,
++            obj->getID(),obj->getPosition()->x,obj->getPosition()->y,target.x,target.y);
++        obj->getAIUpdateInterface()->aiMoveToPosition(&target,CMD_FROM_SCRIPT);
++    }
++    if(log) fclose(log);
++    ++wave;
++}
++
++// Optional simulation CRC sampling uses the engine's existing CRC implementation unchanged.
++static void zhPfLogCrc(GameLogic *logic) {
++    const char *path=getenv("ZH_PF_CRC_LOG");
++    if(!path||!*path||!logic->isInGame()||logic->isInShellGame()||logic->isInMultiplayerGame()||logic->isInReplayGame()||logic->getFrame()%90)return;
++    static bool wrote=false;static unsigned last=0;
++    if(logic->getFrame()<last)wrote=false;last=logic->getFrame();
++    FILE *file=fopen(path,wrote?"a":"w");if(!file)return;
++    if(!wrote)fprintf(file,"frame,crc\n");wrote=true;
++    fprintf(file,"%u,%u\n",logic->getFrame(),logic->getCRC(CRC_RECALC));fclose(file);
++}
+diff --git a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DShadow.cpp b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DShadow.cpp
+index ea0b3e3..47e3775 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DShadow.cpp
++++ b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DShadow.cpp
+@@ -91,7 +91,9 @@ void DoShadows(RenderInfoClass & rinfo, Bool stencilPass)
+ 			//This function gets called many times by the W3D renderer
+ 			//so we use this flag to make sure shadows rendered only once per frame.
+ 			if (TheW3DShadowManager->isShadowScene())
+-				TheW3DVolumetricShadowManager->renderShadows(projectionCount);
++				{
++					TheW3DVolumetricShadowManager->renderShadows(projectionCount);
++				}
+ 	}
+ 	if (TheW3DShadowManager && stencilPass)	//reset so no more shadow processing this frame.
+ 		TheW3DShadowManager->queueShadows(FALSE);
+diff --git a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DVolumetricShadow.cpp b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DVolumetricShadow.cpp
+index 302b7f5..5085094 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DVolumetricShadow.cpp
++++ b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DVolumetricShadow.cpp
+@@ -36,10 +36,12 @@
+ 
+ // SYSTEM INCLUDES ////////////////////////////////////////////////////////////
+ #include <assert.h>
++#include <stdlib.h>
+ 
+ // USER INCLUDES //////////////////////////////////////////////////////////////
+ #include "WWLib/always.h"
+ #include "GameClient/View.h"
++#include "Common/OptionPreferences.h"	// T-064
+ #include "WW3D2/camera.h"
+ #include "WW3D2/light.h"
+ #include "WW3D2/dx8wrapper.h"
+@@ -3570,11 +3572,51 @@ void W3DVolumetricShadowManager::renderShadows( Bool forceStencilFill )
+ 		m_dynamicShadowVolumesToRender=nullptr;	//clear list of pending dynamic shadows
+ 		W3DVolumetricShadowRenderTask *shadowDynamicTasksStart,*shadowDynamicTask;
+ 
++		// PROJECT PATCH (T-030/T-032): test-only shadow distance and screen-size culls.
++		// Units stay visible; only their shadow volumes are skipped.
++		static Real shadowCullDistance = -1.0f;
++		static Real shadowMinScreenRadius = -1.0f;
++		if (shadowCullDistance < 0.0f)
++		{
++			const char *shadowDistValue = getenv("ZH_SHADOWDIST");
++			shadowCullDistance = shadowDistValue ? (Real)atof(shadowDistValue) : 0.0f;
++			const char *shadowSizeValue = getenv("ZH_SHADOWSIZE");
++			shadowMinScreenRadius = shadowSizeValue ? (Real)atof(shadowSizeValue) : (Real)OptionPreferences().getShadowScreenRadius();	// T-064: env > Options.ini > 120
++		}
++
+ 		// step through each of our shadows and render
+ 		for( shadow = m_shadowList; shadow; shadow = shadow->m_next )
+ 		{
+ 			if (shadow->m_isEnabled && !shadow->m_isInvisibleEnabled)
+ 			{
++				if (shadowCullDistance > 0.0f && TheTacticalView && shadow->m_robj)
++				{
++					const Coord3D cam = TheTacticalView->get3DCameraPosition();
++					const Vector3 pos = shadow->m_robj->Get_Position();
++					const Real dx = pos.X - cam.x;
++					const Real dy = pos.Y - cam.y;
++					if (dx * dx + dy * dy > shadowCullDistance * shadowCullDistance)
++						continue;
++				}
++
++				// PROJECT PATCH (T-032): skip shadows whose estimated projected radius is
++				// too small. This uses radius/distance instead of three projections per
++				// caster; 1.866 is 1/(2*tan(15deg)) for the default ~30deg vertical FOV.
++				if (shadowMinScreenRadius > 0.0f && TheTacticalView && shadow->m_robj)
++				{
++					const SphereClass sphere = shadow->m_robj->Get_Bounding_Sphere();
++					const Coord3D cam = TheTacticalView->get3DCameraPosition();
++					const Real dx = sphere.Center.X - cam.x;
++					const Real dy = sphere.Center.Y - cam.y;
++					const Real dz = sphere.Center.Z - cam.z;
++					const Real distSq = dx * dx + dy * dy + dz * dz;
++					if (distSq > 1.0f)
++					{
++						const Real screenRadius = sphere.Radius * (Real)TheTacticalView->getHeight() * 1.866f / sqrt(distSq);
++						if (screenRadius < shadowMinScreenRadius)
++							continue;
++					}
++				}
+ 				//Record last added task
+ 				shadowDynamicTasksStart=m_dynamicShadowVolumesToRender;
+ 				shadow->Update();
+diff --git a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DScene.cpp b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DScene.cpp
+index 53de7a8..a494be7 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DScene.cpp
++++ b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DScene.cpp
+@@ -48,6 +48,7 @@
+ #include "GameClient/View.h"
+ #include "W3DDevice/GameClient/HeightMap.h"
+ #include "W3DDevice/GameClient/W3DScene.h"
++#include "Common/OptionPreferences.h"	// T-064: optimisation settings from Options.ini
+ #include "W3DDevice/GameClient/W3DDynamicLight.h"
+ #include "W3DDevice/GameClient/W3DShadow.h"
+ #include "W3DDevice/GameClient/W3DStatusCircle.h"
+@@ -465,6 +466,29 @@ void RTS3DScene::Visibility_Check(CameraClass * camera)
+ 
+ 				bool isVisible=!camera->Cull_Sphere(robj->Get_Bounding_Sphere());
+ 
++				// PROJECT PATCH (T-021): test-only distance cull at the render-object level.
++				// 0/unset preserves retail behavior.
++				static Real maxDrawDistance = -1.0f;
++				if (maxDrawDistance < 0.0f)
++				{
++					const char *value = getenv("ZH_DRAWDIST");
++					// T-064: env (tests) > Options.ini DrawDistance > default 400. 0 disables the cull.
++					maxDrawDistance = value ? (Real)atof(value) : (Real)OptionPreferences().getDrawDistance();
++				}
++				if (isVisible && maxDrawDistance > 0.0f)
++				{
++					const Vector3 camPos = camera->Get_Position();
++					const Vector3 objPos = robj->Get_Position();
++					const Real dx = objPos.X - camPos.X;
++					const Real dy = objPos.Y - camPos.Y;
++					if (dx * dx + dy * dy > maxDrawDistance * maxDrawDistance)
++						isVisible = false;
++				}
++
++				// PROJECT PATCH (T-021): visibility-preserving distance LOD removed after
++				// measurement showed no draw-time gain (28.8 vs 27.3 ms).
++
++
+ 				if (isVisible)
+ 				{
+ 					//need to keep track of occluders and occludees for subsequent code.
+diff --git a/GeneralsMD/Code/Main/WinMain.cpp b/GeneralsMD/Code/Main/WinMain.cpp
+index 864c557..ee03a8f 100644
+--- a/GeneralsMD/Code/Main/WinMain.cpp
++++ b/GeneralsMD/Code/Main/WinMain.cpp
+@@ -798,6 +798,30 @@ Int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
+ {
+ 	Int exitcode = 1;
+ 
++	// PROJECT PATCH (T-023): make the process DPI-aware before any window is created.
++	// Without this, Windows virtualizes the game at 125%/150% scaling (e.g. a 1920x1080
++	// desktop reports a 1536x864 client area), which blurs and scales fullscreen output.
++	{
++		typedef BOOL (WINAPI *PFN_SetProcessDpiAwarenessContext)(HANDLE);
++		typedef BOOL (WINAPI *PFN_SetProcessDPIAware)();
++		HMODULE user32 = GetModuleHandleA("user32.dll");
++		Bool dpiSet = FALSE;
++		if (user32)
++		{
++			PFN_SetProcessDpiAwarenessContext setContext =
++				(PFN_SetProcessDpiAwarenessContext)GetProcAddress(user32, "SetProcessDpiAwarenessContext");
++			if (setContext)
++				dpiSet = setContext((HANDLE)(LONG_PTR)-4); // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
++			if (!dpiSet)
++			{
++				PFN_SetProcessDPIAware setAware =
++					(PFN_SetProcessDPIAware)GetProcAddress(user32, "SetProcessDPIAware");
++				if (setAware)
++					dpiSet = setAware();
++			}
++		}
++	}
++
+ #ifdef RTS_PROFILE_LEGACY
+   Profile::StartRange("init");
+ #endif

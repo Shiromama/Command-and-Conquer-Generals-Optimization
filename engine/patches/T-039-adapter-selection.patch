@@ -1,0 +1,250 @@
+﻿diff --git a/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp b/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
+index 1303cfb..28e1677 100644
+--- a/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
++++ b/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
+@@ -51,6 +51,9 @@
+ #endif
+ 
+ #include "dx8wrapper.h"
++#include <stdio.h>
++#include <stdlib.h>
++#include <dxgi.h>
+ #include "dx8webbrowser.h"
+ #include "dx8fvf.h"
+ #include "dx8vertexbuffer.h"
+@@ -504,6 +507,128 @@ void DX8Wrapper::Do_Onetime_Device_Dependent_Shutdowns()
+ }
+ 
+ 
++// PROJECT PATCH (T-039): hybrid-GPU adapter selection.
++// The retail engine always renders on D3DADAPTER_DEFAULT, which on a hybrid laptop is usually
++// the integrated GPU. Pick the adapter with the most dedicated video memory reported by DXGI
++// so the discrete GPU is used by default. ZH_ADAPTER=<n> forces an index; ZH_ADAPTER_LOG=<path>
++// records the decision for benchmarks.
++static int Get_Preferred_Render_Device(IDirect3D8 *d3d)
++{
++	if (d3d == nullptr)
++		return 0;
++
++	const int adapterCount = d3d->GetAdapterCount();
++	if (adapterCount <= 1)
++		return 0;
++
++	if (const char *forced = getenv("ZH_ADAPTER"))
++	{
++		const int index = atoi(forced);
++		if (index >= 0 && index < adapterCount)
++			return index;
++	}
++
++	struct DxgiAdapterInfo
++	{
++		unsigned vendor;
++		unsigned device;
++		unsigned long long dedicatedVideoMemory;
++		bool valid;
++	};
++	DxgiAdapterInfo dxgiAdapters[16] = {};
++	int dxgiAdapterCount = 0;
++
++	HMODULE dxgiLibrary = LoadLibraryA("dxgi.dll");
++	if (dxgiLibrary != nullptr)
++	{
++		typedef HRESULT (WINAPI *PFN_CreateDXGIFactory)(REFIID, void **);
++		PFN_CreateDXGIFactory createFactory = (PFN_CreateDXGIFactory)GetProcAddress(dxgiLibrary, "CreateDXGIFactory");
++		IDXGIFactory *factory = nullptr;
++		if (createFactory != nullptr && SUCCEEDED(createFactory(__uuidof(IDXGIFactory), (void **)&factory)) && factory != nullptr)
++		{
++			for (UINT i = 0; i < ARRAY_SIZE(dxgiAdapters); ++i)
++			{
++				IDXGIAdapter *adapter = nullptr;
++				if (factory->EnumAdapters(i, &adapter) != S_OK || adapter == nullptr)
++					break;
++
++				DXGI_ADAPTER_DESC desc;
++				::ZeroMemory(&desc, sizeof(desc));
++				if (SUCCEEDED(adapter->GetDesc(&desc)))
++				{
++					dxgiAdapters[dxgiAdapterCount].vendor = desc.VendorId;
++					dxgiAdapters[dxgiAdapterCount].device = desc.DeviceId;
++					dxgiAdapters[dxgiAdapterCount].dedicatedVideoMemory = desc.DedicatedVideoMemory;
++					dxgiAdapters[dxgiAdapterCount].valid = true;
++					++dxgiAdapterCount;
++				}
++				adapter->Release();
++			}
++			factory->Release();
++		}
++		FreeLibrary(dxgiLibrary);
++	}
++
++	int bestAdapter = 0;
++	unsigned long long bestScore = 0;
++	bool bestFound = false;
++	for (int adapterIndex = 0; adapterIndex < adapterCount; ++adapterIndex)
++	{
++		D3DADAPTER_IDENTIFIER8 identifier;
++		::ZeroMemory(&identifier, sizeof(identifier));
++		if (FAILED(d3d->GetAdapterIdentifier(adapterIndex, D3DENUM_NO_WHQL_LEVEL, &identifier)))
++			continue;
++
++		D3DCAPS8 caps;
++		::ZeroMemory(&caps, sizeof(caps));
++		if (FAILED(d3d->GetDeviceCaps(adapterIndex, WW3D_DEVTYPE, &caps)))
++			continue;
++
++		unsigned long long score = 1;
++		for (int i = 0; i < dxgiAdapterCount; ++i)
++		{
++			if (dxgiAdapters[i].valid &&
++				dxgiAdapters[i].vendor == identifier.VendorId &&
++				dxgiAdapters[i].device == identifier.DeviceId)
++			{
++				score = dxgiAdapters[i].dedicatedVideoMemory + 1;
++				break;
++			}
++		}
++
++		// Without DXGI, prefer any non-Intel hardware adapter over the integrated one.
++		if (dxgiAdapterCount == 0 && identifier.VendorId != 0x8086)
++			score = 2;
++
++		if (!bestFound || score > bestScore)
++		{
++			bestAdapter = adapterIndex;
++			bestScore = score;
++			bestFound = true;
++		}
++	}
++
++	if (const char *logPath = getenv("ZH_ADAPTER_LOG"))
++	{
++		FILE *log = fopen(logPath, "a");
++		if (log != nullptr)
++		{
++			fprintf(log, "adapters=%d chosen=%d score=%llu\n", adapterCount, bestAdapter, bestScore);
++			for (int i = 0; i < adapterCount; ++i)
++			{
++				D3DADAPTER_IDENTIFIER8 identifier;
++				::ZeroMemory(&identifier, sizeof(identifier));
++				if (SUCCEEDED(d3d->GetAdapterIdentifier(i, D3DENUM_NO_WHQL_LEVEL, &identifier)))
++					fprintf(log, "  adapter[%d] vendor=0x%04X device=0x%04X desc=%s\n",
++						i, identifier.VendorId, identifier.DeviceId, identifier.Description);
++			}
++			fclose(log);
++		}
++	}
++
++	return bestAdapter;
++}
++
+ bool DX8Wrapper::Create_Device()
+ {
+ 	WWASSERT(D3DDevice==nullptr);	// for now, once you've created a device, you're stuck with it!
+@@ -955,11 +1080,16 @@ bool DX8Wrapper::Set_Render_Device(int dev, int width, int height, int bits, int
+ 	WWASSERT(dev < _RenderDeviceNameTable.Count());
+ 
+ 	/*
+-	** If user has never selected a render device, start out with device 0
++	** PROJECT PATCH (T-039): default (0) means "let the engine choose"; on hybrid systems
++	** that is the discrete GPU. An explicit non-zero index is honored unchanged.
+ 	*/
+-	if ((CurRenderDevice == -1) && (dev == -1)) {
+-		CurRenderDevice = 0;
+-	} else if (dev != -1) {
++	if (dev <= 0)
++	{
++		const int preferred = Get_Preferred_Render_Device(D3DInterface);
++		CurRenderDevice = (preferred >= 0 && preferred < _RenderDeviceNameTable.Count()) ? preferred : 0;
++	}
++	else
++	{
+ 		CurRenderDevice = dev;
+ 	}
+ 
+@@ -1533,13 +1663,13 @@ bool DX8Wrapper::Find_Color_Mode(D3DFORMAT colorbuffer, int resx, int resy, UINT
+ 
+ 	bool found=false;
+ 
+-	modemax=D3DInterface->GetAdapterModeCount(D3DADAPTER_DEFAULT);
++	modemax=D3DInterface->GetAdapterModeCount((CurRenderDevice >= 0 ? CurRenderDevice : 0));
+ 
+ 	i=0;
+ 
+ 	while (i<modemax && !found)
+ 	{
+-		D3DInterface->EnumAdapterModes(D3DADAPTER_DEFAULT, i, &dmode);
++		D3DInterface->EnumAdapterModes((CurRenderDevice >= 0 ? CurRenderDevice : 0), i, &dmode);
+ 		if (dmode.Width==rx && dmode.Height==ry && dmode.Format==colorbuffer) {
+ 			WWDEBUG_SAY(("Found valid color mode.  Width = %d Height = %d Format = %d",dmode.Width,dmode.Height,dmode.Format));
+ 			found=true;
+@@ -1561,7 +1691,7 @@ bool DX8Wrapper::Find_Color_Mode(D3DFORMAT colorbuffer, int resx, int resy, UINT
+ 	j=i;
+ 	while (j<modemax && stillok)
+ 	{
+-		D3DInterface->EnumAdapterModes(D3DADAPTER_DEFAULT, j, &dmode);
++		D3DInterface->EnumAdapterModes((CurRenderDevice >= 0 ? CurRenderDevice : 0), j, &dmode);
+ 		if (dmode.Width==rx && dmode.Height==ry && dmode.Format==colorbuffer)
+ 			stillok=true; else stillok=false;
+ 		j++;
+@@ -1628,7 +1758,7 @@ bool DX8Wrapper::Find_Z_Mode(D3DFORMAT colorbuffer,D3DFORMAT backbuffer, D3DFORM
+ bool DX8Wrapper::Test_Z_Mode(D3DFORMAT colorbuffer,D3DFORMAT backbuffer, D3DFORMAT zmode)
+ {
+ 	// See if we have this mode first
+-	if (FAILED(D3DInterface->CheckDeviceFormat(D3DADAPTER_DEFAULT,WW3D_DEVTYPE,
++	if (FAILED(D3DInterface->CheckDeviceFormat((CurRenderDevice >= 0 ? CurRenderDevice : 0),WW3D_DEVTYPE,
+ 		colorbuffer,D3DUSAGE_DEPTHSTENCIL,D3DRTYPE_SURFACE,zmode)))
+ 	{
+ 		WWDEBUG_SAY(("CheckDeviceFormat failed.  Colorbuffer format = %d  Zbufferformat = %d",colorbuffer,zmode));
+@@ -1636,7 +1766,7 @@ bool DX8Wrapper::Test_Z_Mode(D3DFORMAT colorbuffer,D3DFORMAT backbuffer, D3DFORM
+ 	}
+ 
+ 	// Then see if it matches the color buffer
+-	if(FAILED(D3DInterface->CheckDepthStencilMatch(D3DADAPTER_DEFAULT, WW3D_DEVTYPE,
++	if(FAILED(D3DInterface->CheckDepthStencilMatch((CurRenderDevice >= 0 ? CurRenderDevice : 0), WW3D_DEVTYPE,
+ 		colorbuffer,backbuffer,zmode)))
+ 	{
+ 		WWDEBUG_SAY(("CheckDepthStencilMatch failed.  Colorbuffer format = %d  Backbuffer format = %d Zbufferformat = %d",colorbuffer,backbuffer,zmode));
+@@ -1735,6 +1865,42 @@ void DX8Wrapper::End_Scene(bool flip_frames)
+ 		}
+ 	}
+ 
++	// PROJECT PATCH (T-015): optional frame-time log, enabled by ZH_PERF_LOG=<path>.
++	// Records one CSV row per presented frame; zero overhead when the variable is unset.
++	{
++		static bool perfInit = false;
++		static FILE *perfFile = nullptr;
++		static LARGE_INTEGER perfFreq;
++		static LARGE_INTEGER perfLast;
++		static unsigned long long perfFrame = 0;
++		if (!perfInit)
++		{
++			perfInit = true;
++			const char *perfPath = getenv("ZH_PERF_LOG");
++			if (perfPath && *perfPath)
++			{
++				perfFile = fopen(perfPath, "w");
++				if (perfFile)
++				{
++					fprintf(perfFile, "frame,frame_ms\n");
++					QueryPerformanceFrequency(&perfFreq);
++					QueryPerformanceCounter(&perfLast);
++				}
++			}
++		}
++		if (perfFile)
++		{
++			LARGE_INTEGER now;
++			QueryPerformanceCounter(&now);
++			double frameMs = (double)(now.QuadPart - perfLast.QuadPart) * 1000.0 / (double)perfFreq.QuadPart;
++			perfLast = now;
++			++perfFrame;
++			fprintf(perfFile, "%llu,%.4f\n", perfFrame, frameMs);
++			if ((perfFrame % 120) == 0)
++				fflush(perfFile);
++		}
++	}
++
+ 	// Each frame, release all of the buffers and textures.
+ 	Set_Vertex_Buffer(nullptr);
+ 	Set_Index_Buffer(nullptr,0);

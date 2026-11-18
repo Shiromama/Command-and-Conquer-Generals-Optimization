@@ -1,0 +1,35 @@
+﻿diff --git a/GeneralsMD/Code/Main/WinMain.cpp b/GeneralsMD/Code/Main/WinMain.cpp
+index 864c557..ee03a8f 100644
+--- a/GeneralsMD/Code/Main/WinMain.cpp
++++ b/GeneralsMD/Code/Main/WinMain.cpp
+@@ -798,6 +798,30 @@ Int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
+ {
+ 	Int exitcode = 1;
+ 
++	// PROJECT PATCH (T-023): make the process DPI-aware before any window is created.
++	// Without this, Windows virtualizes the game at 125%/150% scaling (e.g. a 1920x1080
++	// desktop reports a 1536x864 client area), which blurs and scales fullscreen output.
++	{
++		typedef BOOL (WINAPI *PFN_SetProcessDpiAwarenessContext)(HANDLE);
++		typedef BOOL (WINAPI *PFN_SetProcessDPIAware)();
++		HMODULE user32 = GetModuleHandleA("user32.dll");
++		Bool dpiSet = FALSE;
++		if (user32)
++		{
++			PFN_SetProcessDpiAwarenessContext setContext =
++				(PFN_SetProcessDpiAwarenessContext)GetProcAddress(user32, "SetProcessDpiAwarenessContext");
++			if (setContext)
++				dpiSet = setContext((HANDLE)(LONG_PTR)-4); // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
++			if (!dpiSet)
++			{
++				PFN_SetProcessDPIAware setAware =
++					(PFN_SetProcessDPIAware)GetProcAddress(user32, "SetProcessDPIAware");
++				if (setAware)
++					dpiSet = setAware();
++			}
++		}
++	}
++
+ #ifdef RTS_PROFILE_LEGACY
+   Profile::StartRange("init");
+ #endif

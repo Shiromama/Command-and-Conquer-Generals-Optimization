@@ -1,0 +1,56 @@
+﻿diff --git a/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp b/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
+index 1303cfb..ffc0cfc 100644
+--- a/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
++++ b/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
+@@ -51,6 +51,8 @@
+ #endif
+ 
+ #include "dx8wrapper.h"
++#include <stdio.h>
++#include <stdlib.h>
+ #include "dx8webbrowser.h"
+ #include "dx8fvf.h"
+ #include "dx8vertexbuffer.h"
+@@ -1735,6 +1737,42 @@ void DX8Wrapper::End_Scene(bool flip_frames)
+ 		}
+ 	}
+ 
++	// PROJECT PATCH (T-015): optional frame-time log, enabled by ZH_PERF_LOG=<path>.
++	// Records one CSV row per presented frame; zero overhead when the variable is unset.
++	{
++		static bool perfInit = false;
++		static FILE *perfFile = nullptr;
++		static LARGE_INTEGER perfFreq;
++		static LARGE_INTEGER perfLast;
++		static unsigned long long perfFrame = 0;
++		if (!perfInit)
++		{
++			perfInit = true;
++			const char *perfPath = getenv("ZH_PERF_LOG");
++			if (perfPath && *perfPath)
++			{
++				perfFile = fopen(perfPath, "w");
++				if (perfFile)
++				{
++					fprintf(perfFile, "frame,frame_ms\n");
++					QueryPerformanceFrequency(&perfFreq);
++					QueryPerformanceCounter(&perfLast);
++				}
++			}
++		}
++		if (perfFile)
++		{
++			LARGE_INTEGER now;
++			QueryPerformanceCounter(&now);
++			double frameMs = (double)(now.QuadPart - perfLast.QuadPart) * 1000.0 / (double)perfFreq.QuadPart;
++			perfLast = now;
++			++perfFrame;
++			fprintf(perfFile, "%llu,%.4f\n", perfFrame, frameMs);
++			if ((perfFrame % 120) == 0)
++				fflush(perfFile);
++		}
++	}
++
+ 	// Each frame, release all of the buffers and textures.
+ 	Set_Vertex_Buffer(nullptr);
+ 	Set_Index_Buffer(nullptr,0);

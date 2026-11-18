@@ -1,0 +1,41 @@
+# Game installation: read-only external reference, never tracked (1.29 GB)
+/Command and Conquer Generals Zero Hour/
+
+# ShockWave mod installation (read-only external reference, 1.82 GB)
+/Command and Conquer Generals Zero Hour - Shockwave/
+
+# Large/scratch evidence; keep only the README and manifests are documented
+/artifacts/*
+!/artifacts/README.md
+
+# Rust build output (future phases)
+/target/
+**/*.rs.bk
+
+# Game copies: large and local
+/game/baseline-pristine/
+/game/work/
+/game/engine-test/
+/game/shockwave-work/
+/game/shockwave-patcher/
+/game/shockwave-engine/
+/game/alpha-stock-v010/
+/game/alpha-shockwave-v010/
+/game/alpha-stock-v010b/
+/game/alpha-shockwave-v010b/
+/game/copies.json
+
+# Vendored engine source and build output (see vendor/README.md)
+/vendor/GeneralsGameCode/
+/build/
+
+# Local/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+*.user
+
+# Python bytecode
+__pycache__/
+*.pyc

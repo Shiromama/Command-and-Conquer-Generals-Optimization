@@ -1,0 +1,64 @@
+﻿diff --git a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DVolumetricShadow.cpp b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DVolumetricShadow.cpp
+index 302b7f5..c64e2cf 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DVolumetricShadow.cpp
++++ b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DVolumetricShadow.cpp
+@@ -36,6 +36,7 @@
+ 
+ // SYSTEM INCLUDES ////////////////////////////////////////////////////////////
+ #include <assert.h>
++#include <stdlib.h>
+ 
+ // USER INCLUDES //////////////////////////////////////////////////////////////
+ #include "WWLib/always.h"
+@@ -3570,11 +3571,51 @@ void W3DVolumetricShadowManager::renderShadows( Bool forceStencilFill )
+ 		m_dynamicShadowVolumesToRender=nullptr;	//clear list of pending dynamic shadows
+ 		W3DVolumetricShadowRenderTask *shadowDynamicTasksStart,*shadowDynamicTask;
+ 
++		// PROJECT PATCH (T-030/T-032): test-only shadow distance and screen-size culls.
++		// Units stay visible; only their shadow volumes are skipped.
++		static Real shadowCullDistance = -1.0f;
++		static Real shadowMinScreenRadius = -1.0f;
++		if (shadowCullDistance < 0.0f)
++		{
++			const char *shadowDistValue = getenv("ZH_SHADOWDIST");
++			shadowCullDistance = shadowDistValue ? (Real)atof(shadowDistValue) : 0.0f;
++			const char *shadowSizeValue = getenv("ZH_SHADOWSIZE");
++			shadowMinScreenRadius = shadowSizeValue ? (Real)atof(shadowSizeValue) : 0.0f;
++		}
++
+ 		// step through each of our shadows and render
+ 		for( shadow = m_shadowList; shadow; shadow = shadow->m_next )
+ 		{
+ 			if (shadow->m_isEnabled && !shadow->m_isInvisibleEnabled)
+ 			{
++				if (shadowCullDistance > 0.0f && TheTacticalView && shadow->m_robj)
++				{
++					const Coord3D cam = TheTacticalView->get3DCameraPosition();
++					const Vector3 pos = shadow->m_robj->Get_Position();
++					const Real dx = pos.X - cam.x;
++					const Real dy = pos.Y - cam.y;
++					if (dx * dx + dy * dy > shadowCullDistance * shadowCullDistance)
++						continue;
++				}
++
++				// PROJECT PATCH (T-032): skip shadows whose estimated projected radius is
++				// too small. This uses radius/distance instead of three projections per
++				// caster; 1.866 is 1/(2*tan(15deg)) for the default ~30deg vertical FOV.
++				if (shadowMinScreenRadius > 0.0f && TheTacticalView && shadow->m_robj)
++				{
++					const SphereClass sphere = shadow->m_robj->Get_Bounding_Sphere();
++					const Coord3D cam = TheTacticalView->get3DCameraPosition();
++					const Real dx = sphere.Center.X - cam.x;
++					const Real dy = sphere.Center.Y - cam.y;
++					const Real dz = sphere.Center.Z - cam.z;
++					const Real distSq = dx * dx + dy * dy + dz * dz;
++					if (distSq > 1.0f)
++					{
++						const Real screenRadius = sphere.Radius * (Real)TheTacticalView->getHeight() * 1.866f / sqrt(distSq);
++						if (screenRadius < shadowMinScreenRadius)
++							continue;
++					}
++				}
+ 				//Record last added task
+ 				shadowDynamicTasksStart=m_dynamicShadowVolumesToRender;
+ 				shadow->Update();
