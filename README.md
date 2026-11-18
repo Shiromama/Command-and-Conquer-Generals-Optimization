@@ -7,7 +7,7 @@ Targeted C++ engine patches for **Command & Conquer: Generals Zero Hour**, based
 of EA's released engine source. The project includes a reversible Windows patcher,
 benchmark tooling, and records of the performance and compatibility tests.
 
-This project was developed with assistance from OpenAI Codex and OpenCode.
+This project was developed with assistance from Codex and OpenCode.
 The [`.opencode` session notes](.opencode/continuity.md) document development
 decisions, verification results, and remaining work.
 
