@@ -11,6 +11,30 @@ This project was developed with assistance from Codex and OpenCode.
 The [`.opencode` session notes](.opencode/continuity.md) document development
 decisions, verification results, and remaining work.
 
+## Quick start
+
+**Download.** Check [Releases](https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases)
+for the Windows patcher ZIP. The prebuilt download is pending. To experiment
+with the source today, see the [engine build guide](engine/README.md).
+
+Once you have the patcher ZIP:
+
+1. Close Zero Hour and any mod launcher. Make a writable copy of your compatible
+   Zero Hour installation.
+2. Extract the entire patcher ZIP into a separate folder. Open `Patcher.cmd`,
+   select your game copy, and choose **Install**.
+3. Open `Generals.exe` from the patched copy and start a singleplayer skirmish.
+   For ShockWave, open PowerShell in the patcher folder and run this command
+   with the path to your game copy:
+
+   ```powershell
+   .\zh-patcher.exe play --game-dir 'C:\Games\ZeroHourCopy'
+   ```
+
+4. To restore the original files, close the game, open `Patcher.cmd`, select the
+   same copy, and choose **Uninstall**. Keep the `.zhpatch-alpha` backup folder
+   and the matching patcher package until you're done testing.
+
 ## What changed
 
 - [VERIFIED] Engine work includes faster debris collision candidate filtering, a corrected
