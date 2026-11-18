@@ -13,6 +13,15 @@ patch_command=['git','--git-dir='+str(source/'.git'),'--work-tree='+str(output),
 for feature_patch in feature_patches:
     subprocess.run(patch_command+['--check',str(feature_patch)],cwd=output,check=True)
     subprocess.run(patch_command+[str(feature_patch)],cwd=output,check=True)
+resource_path='GeneralsMD/Code/Main/RTS.rc'
+resource=output/resource_path
+contents, icon_count=re.subn(
+    rb'^IDI_ApplicationIcon[ \t]+ICON[ \t]+DISCARDABLE[ \t]+"GENERALS\.ICO"\r?\n',
+    b'', resource.read_bytes(), flags=re.M,
+)
+if icon_count != 1:
+    raise ValueError('Expected exactly one upstream application icon resource')
+resource.write_bytes(contents)
 lzhl=output/'cmake/lzhl.cmake'
 lzhl.write_text(lzhl.read_text(encoding='utf-8').replace('FetchContent_Populate(lzhl DOWNLOAD_EXTRACT_TIMESTAMP','if(NOT EXISTS "${LZHL_DIR}/Lz.cpp")\nFetchContent_Populate(lzhl DOWNLOAD_EXTRACT_TIMESTAMP').replace('\nadd_library(liblzhl STATIC)','\nendif()\n\nadd_library(liblzhl STATIC)'),encoding='utf-8')
 zlib=output/'cmake/zlib.cmake'
@@ -39,5 +48,6 @@ feature_files=[]
 for feature_patch in feature_patches:
     feature_files+=re.findall(r'^\+\+\+ b/(.+)$',feature_patch.read_text(encoding='utf-8'),re.M)
 manifest['feature_source_sha256']={name:hashlib.sha256((output/name).read_bytes()).hexdigest() for name in feature_files}
+manifest['public_resource_sha256']={resource_path:hashlib.sha256(contents).hexdigest()}
 (output/'alpha-source.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
 print(f'PASS: isolated alpha source; {len(changes)} files, {sum(x["disabled_environment_reads"] for x in changes)} diagnostic reads disabled')
