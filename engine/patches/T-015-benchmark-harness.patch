@@ -1,0 +1,286 @@
+﻿diff --git a/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp b/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
+index 1303cfb..ffc0cfc 100644
+--- a/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
++++ b/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
+@@ -51,6 +51,8 @@
+ #endif
+ 
+ #include "dx8wrapper.h"
++#include <stdio.h>
++#include <stdlib.h>
+ #include "dx8webbrowser.h"
+ #include "dx8fvf.h"
+ #include "dx8vertexbuffer.h"
+@@ -1735,6 +1737,42 @@ void DX8Wrapper::End_Scene(bool flip_frames)
+ 		}
+ 	}
+ 
++	// PROJECT PATCH (T-015): optional frame-time log, enabled by ZH_PERF_LOG=<path>.
++	// Records one CSV row per presented frame; zero overhead when the variable is unset.
++	{
++		static bool perfInit = false;
++		static FILE *perfFile = nullptr;
++		static LARGE_INTEGER perfFreq;
++		static LARGE_INTEGER perfLast;
++		static unsigned long long perfFrame = 0;
++		if (!perfInit)
++		{
++			perfInit = true;
++			const char *perfPath = getenv("ZH_PERF_LOG");
++			if (perfPath && *perfPath)
++			{
++				perfFile = fopen(perfPath, "w");
++				if (perfFile)
++				{
++					fprintf(perfFile, "frame,frame_ms\n");
++					QueryPerformanceFrequency(&perfFreq);
++					QueryPerformanceCounter(&perfLast);
++				}
++			}
++		}
++		if (perfFile)
++		{
++			LARGE_INTEGER now;
++			QueryPerformanceCounter(&now);
++			double frameMs = (double)(now.QuadPart - perfLast.QuadPart) * 1000.0 / (double)perfFreq.QuadPart;
++			perfLast = now;
++			++perfFrame;
++			fprintf(perfFile, "%llu,%.4f\n", perfFrame, frameMs);
++			if ((perfFrame % 120) == 0)
++				fflush(perfFile);
++		}
++	}
++
+ 	// Each frame, release all of the buffers and textures.
+ 	Set_Vertex_Buffer(nullptr);
+ 	Set_Index_Buffer(nullptr,0);
+diff --git a/GeneralsMD/Code/GameEngine/Source/Common/GameEngine.cpp b/GeneralsMD/Code/GameEngine/Source/Common/GameEngine.cpp
+index 57d729b..5485b5e 100644
+--- a/GeneralsMD/Code/GameEngine/Source/Common/GameEngine.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/Common/GameEngine.cpp
+@@ -888,7 +888,31 @@ void GameEngine::update()
+ 			/// @todo Move audio init, update, etc, into GameClient update
+ 
+ 			TheAudio->UPDATE();
+-			TheGameClient->UPDATE();
++			{
++				static FILE *splitFile = nullptr;
++				static bool splitInit = false;
++				if (!splitInit)
++				{
++					splitInit = true;
++					const char *splitPath = getenv("ZH_PERF_SPLIT");
++					if (splitPath && *splitPath)
++					{
++						splitFile = fopen(splitPath, "w");
++						if (splitFile)
++							fprintf(splitFile, "phase,ms\n");
++					}
++				}
++				LARGE_INTEGER splitFreq, splitStart, splitEnd;
++				QueryPerformanceFrequency(&splitFreq);
++				QueryPerformanceCounter(&splitStart);
++				TheGameClient->UPDATE();
++				QueryPerformanceCounter(&splitEnd);
++				if (splitFile)
++				{
++					fprintf(splitFile, "client,%.4f\n", (double)(splitEnd.QuadPart - splitStart.QuadPart) * 1000.0 / (double)splitFreq.QuadPart);
++					fflush(splitFile);
++				}
++			}
+ 			TheMessageStream->propagateMessages();
+ 
+ 			if (TheNetwork != nullptr)
+@@ -900,7 +924,27 @@ void GameEngine::update()
+ 		// TheSuperHackers @info Ignores frozen time because the script engine needs updating in the logic update regardless.
+ 		if (canUpdateGameLogic(FramePacer::IgnoreFrozenTime))
+ 		{
++			LARGE_INTEGER splitFreq, splitStart, splitEnd;
++			QueryPerformanceFrequency(&splitFreq);
++			QueryPerformanceCounter(&splitStart);
+ 			TheGameLogic->UPDATE();
++			QueryPerformanceCounter(&splitEnd);
++			{
++				static FILE *logicFile = nullptr;
++				static bool logicInit = false;
++				if (!logicInit)
++				{
++					logicInit = true;
++					const char *splitPath = getenv("ZH_PERF_SPLIT");
++					if (splitPath && *splitPath)
++						logicFile = fopen(splitPath, "a");
++				}
++				if (logicFile)
++				{
++					fprintf(logicFile, "logic,%.4f\n", (double)(splitEnd.QuadPart - splitStart.QuadPart) * 1000.0 / (double)splitFreq.QuadPart);
++					fflush(logicFile);
++				}
++			}
+ 
+ 			if (!TheFramePacer->isTimeFrozen())
+ 			{
+diff --git a/GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp b/GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp
+index 58e4903..d5b7089 100644
+--- a/GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp
+@@ -717,7 +717,27 @@ void GameClient::update()
+ 	// redraw all views, update the GUI
+ 	//if(TheGameLogic->getFrame() >= 2)
+ 
+-		TheDisplay->DRAW();
++		{
++			LARGE_INTEGER drawFreq, drawStart, drawEnd;
++			QueryPerformanceFrequency(&drawFreq);
++			QueryPerformanceCounter(&drawStart);
++			TheDisplay->DRAW();
++			QueryPerformanceCounter(&drawEnd);
++			static FILE *drawFile = nullptr;
++			static bool drawInit = false;
++			if (!drawInit)
++			{
++				drawInit = true;
++				const char *splitPath = getenv("ZH_PERF_SPLIT");
++				if (splitPath && *splitPath)
++					drawFile = fopen(splitPath, "a");
++			}
++			if (drawFile)
++			{
++				fprintf(drawFile, "draw,%.4f\n", (double)(drawEnd.QuadPart - drawStart.QuadPart) * 1000.0 / (double)drawFreq.QuadPart);
++				fflush(drawFile);
++			}
++		}
+ 	}
+ 
+ 	{
+diff --git a/GeneralsMD/Code/GameEngine/Source/GameLogic/System/GameLogic.cpp b/GeneralsMD/Code/GameEngine/Source/GameLogic/System/GameLogic.cpp
+index 275119c..f937753 100644
+--- a/GeneralsMD/Code/GameEngine/Source/GameLogic/System/GameLogic.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameLogic/System/GameLogic.cpp
+@@ -3694,6 +3694,92 @@ extern __int64 Total_Load_3D_Assets;
+ // ------------------------------------------------------------------------------------------------
+ void GameLogic::update()
+ {
++	// PROJECT PATCH (T-015): test-only auto-start and deferred stress spawn.
++	{
++		static Bool autoStartDone = FALSE;
++		if (!autoStartDone && !isInGame())
++		{
++			const char *autoMap = getenv("ZH_MAP");
++			if (autoMap && *autoMap)
++			{
++				autoStartDone = TRUE;
++				TheWritableGlobalData->m_pendingFile.set(autoMap);
++				GameMessage *startMsg = TheMessageStream->appendMessage(GameMessage::MSG_NEW_GAME);
++				startMsg->appendIntegerArgument(GAME_SINGLE_PLAYER);
++				startMsg->appendIntegerArgument(DIFFICULTY_NORMAL);
++				startMsg->appendIntegerArgument(0);
++				// PROJECT PATCH (T-015): optional render FPS cap for headroom measurement.
++				const char *fpsValue = getenv("ZH_FPS");
++				if (fpsValue && atoi(fpsValue) > 0)
++					startMsg->appendIntegerArgument(atoi(fpsValue));
++				InitRandom(0);
++				if (TheShell)
++					TheShell->hideShell();
++			}
++		}
++	}
++	{
++		static Bool stressDone = FALSE;
++		if (!stressDone && isInGame() && !isInShellGame())
++		{
++			const char *stressValue = getenv("ZH_STRESS");
++			Int stressCount = stressValue ? atoi(stressValue) : 0;
++			if (stressCount > 0)
++			{
++				if (stressCount > 1000)
++					stressCount = 1000;
++				Player *stressPlayer = ThePlayerList ? ThePlayerList->getLocalPlayer() : nullptr;
++				Team *stressTeam = stressPlayer ? stressPlayer->getDefaultTeam() : nullptr;
++				if (!stressTeam && ThePlayerList)
++					stressTeam = ThePlayerList->getNeutralPlayer()->getDefaultTeam();
++				if (!stressTeam && TheGameLogic)
++				{
++					Object *seed = TheGameLogic->getFirstObject();
++					if (seed)
++						stressTeam = seed->getTeam();
++				}
++				const ThingTemplate *stressTemplate = TheThingFactory->findTemplate("AmericaTankCrusader");
++				if (stressTeam && stressTemplate)
++				{
++					stressDone = TRUE;
++					FILE *stressLog = fopen("stress.log", "w");
++					if (stressLog)
++					{
++						fprintf(stressLog, "count=%d player=%p team=%p template=%p tactical=%p terrain=%p\n",
++							stressCount, (void *)stressPlayer, (void *)stressTeam, (void *)stressTemplate,
++							(void *)TheTacticalView, (void *)TheTerrainLogic);
++						fclose(stressLog);
++					}
++					Coord3D center = TheTacticalView ? TheTacticalView->getPosition() : Coord3D{ 0, 0, 0 };
++					for (Int i = 0; i < stressCount; ++i)
++					{
++						Coord3D pos = center;
++						pos.x += ((i % 25) - 12) * 20.0f;
++						pos.y += ((i / 25) - 12) * 20.0f;
++						pos.z = TheTerrainLogic->getGroundHeight(pos.x, pos.y);
++						Object *obj = TheThingFactory->newObject(stressTemplate, stressTeam);
++						if (obj)
++							obj->setPosition(&pos);
++					}
++				}
++			}
++		}
++	}
++	{
++		// PROJECT PATCH (T-015): test-only shadow toggle for cost attribution.
++		static Bool shadowToggleDone = FALSE;
++		if (!shadowToggleDone && isInGame() && !isInShellGame())
++		{
++			const char *shadowValue = getenv("ZH_NOSHADOW");
++			if (shadowValue && atoi(shadowValue) > 0)
++			{
++				shadowToggleDone = TRUE;
++				TheWritableGlobalData->m_useShadowVolumes = FALSE;
++				TheWritableGlobalData->m_useShadowDecals = FALSE;
++			}
++		}
++	}
++
+ 	USE_PERF_TIMER(GameLogic_update)
+ 	PROFILER_SECTION_COLOR(0x4CAF50);
+ 
+diff --git a/GeneralsMD/Code/Main/WinMain.cpp b/GeneralsMD/Code/Main/WinMain.cpp
+index 864c557..ee03a8f 100644
+--- a/GeneralsMD/Code/Main/WinMain.cpp
++++ b/GeneralsMD/Code/Main/WinMain.cpp
+@@ -798,6 +798,30 @@ Int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
+ {
+ 	Int exitcode = 1;
+ 
++	// PROJECT PATCH (T-023): make the process DPI-aware before any window is created.
++	// Without this, Windows virtualizes the game at 125%/150% scaling (e.g. a 1920x1080
++	// desktop reports a 1536x864 client area), which blurs and scales fullscreen output.
++	{
++		typedef BOOL (WINAPI *PFN_SetProcessDpiAwarenessContext)(HANDLE);
++		typedef BOOL (WINAPI *PFN_SetProcessDPIAware)();
++		HMODULE user32 = GetModuleHandleA("user32.dll");
++		Bool dpiSet = FALSE;
++		if (user32)
++		{
++			PFN_SetProcessDpiAwarenessContext setContext =
++				(PFN_SetProcessDpiAwarenessContext)GetProcAddress(user32, "SetProcessDpiAwarenessContext");
++			if (setContext)
++				dpiSet = setContext((HANDLE)(LONG_PTR)-4); // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
++			if (!dpiSet)
++			{
++				PFN_SetProcessDPIAware setAware =
++					(PFN_SetProcessDPIAware)GetProcAddress(user32, "SetProcessDPIAware");
++				if (setAware)
++					dpiSet = setAware();
++			}
++		}
++	}
++
+ #ifdef RTS_PROFILE_LEGACY
+   Profile::StartRange("init");
+ #endif

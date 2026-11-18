@@ -1,0 +1,10 @@
+# Pinned third-party sources. Updated only with a dated log entry.
+
+[GeneralsGameCode]
+url = https://github.com/TheSuperHackers/GeneralsGameCode
+ref = main
+commit = 0ff1220caf8dbcf254e4ad63ea8e907f22089624
+cloned = 2026-11-14
+license = GPL-3.0
+path = vendor/GeneralsGameCode
+upstream_note = actively maintained C++20 fork of the official GPLv3 Zero Hour source release

@@ -1,0 +1,21 @@
+diff --git a/Core/GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DModelDraw.cpp b/Core/GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DModelDraw.cpp
+index 8ccdb64..e8eae6b 100644
+--- a/Core/GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DModelDraw.cpp
++++ b/Core/GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DModelDraw.cpp
+@@ -3695,9 +3695,15 @@ Bool W3DModelDraw::handleWeaponFireFX(WeaponSlotType wslot, Int specificBarrelTo
+ 
+ 	Bool handled = false;
+ 
+-	if (specificBarrelToUse < 0 || specificBarrelToUse > wbvec.size())
++	if (specificBarrelToUse < 0 || specificBarrelToUse >= (Int)wbvec.size())
+ 		specificBarrelToUse = 0;
+ 
++	// T-081 fixture finding: barrel data can be validated during a logic update after the
++	// state was first used, leaving recoil storage sized for the pre-validation state.
++	// Rebuild before indexing so a valid fire cannot dereference an empty recoil vector.
++	if (m_weaponRecoilInfoVec[wslot].size() != wbvec.size())
++		rebuildWeaponRecoilInfo(m_curState);
++
+ 	const ModelConditionInfo::WeaponBarrelInfo& info = wbvec[specificBarrelToUse];
+ 
+ 	if (fxl)

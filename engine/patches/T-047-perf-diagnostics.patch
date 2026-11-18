@@ -1,0 +1,199 @@
+﻿diff --git a/Core/GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DDebrisDraw.cpp b/Core/GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DDebrisDraw.cpp
+index 6895616..e114f3e 100644
+--- a/Core/GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DDebrisDraw.cpp
++++ b/Core/GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DDebrisDraw.cpp
+@@ -30,6 +30,8 @@
+ // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
+ 
+ #include "Common/FileSystem.h"	// this is only here to pull in LOAD_TEST_ASSETS
++#include <stdio.h>
++#include <stdlib.h>
+ #include "Common/GlobalData.h"
+ #include "Common/ThingTemplate.h"
+ #include "Common/Xfer.h"
+@@ -110,6 +112,20 @@ void W3DDebrisDraw::setModelName(AsciiString name, Color color, ShadowType t)
+ 			hexColor = color | 0xFF000000;
+ 		m_renderObject = W3DDisplay::m_assetManager->Create_Render_Obj(name.str(), getDrawable()->getScale(), hexColor);
+ 		DEBUG_ASSERTCRASH(m_renderObject, ("Debris model %s not found!",name.str()));
++		// PROJECT PATCH (T-036): test-only log of debris models that fail to load.
++		if (m_renderObject == nullptr)
++		{
++			const char *debrisLogPath = getenv("ZH_DEBRIS_LOG");
++			if (debrisLogPath && *debrisLogPath)
++			{
++				FILE *debrisLog = fopen(debrisLogPath, "a");
++				if (debrisLog != nullptr)
++				{
++					fprintf(debrisLog, "missing %s\n", name.str());
++					fclose(debrisLog);
++				}
++			}
++		}
+ 		if (m_renderObject)
+ 		{
+ 			if (W3DDisplay::m_3DScene != nullptr)
+@@ -212,6 +228,26 @@ void W3DDebrisDraw::reactToTransformChange( const Matrix3D *oldMtx,
+ //-------------------------------------------------------------------------------------------------
+ void W3DDebrisDraw::doDrawModule(const Matrix3D* transformMtx)
+ {
++	// PROJECT PATCH (T-036): test-only draw log (ZH_DEBRIS_LOG). Records the first few draws
++	// with model, position, render object and scale so an invisible debris field can be triaged.
++	{
++		static Int s_drawLogCount = 0;
++		const char *debrisLogPath = getenv("ZH_DEBRIS_LOG");
++		if (debrisLogPath && *debrisLogPath && s_drawLogCount < 20)
++		{
++			FILE *debrisLog = fopen(debrisLogPath, "a");
++			if (debrisLog != nullptr)
++			{
++				const Coord3D *p = getDrawable()->getPosition();
++				fprintf(debrisLog, "draw %s pos=(%.1f,%.1f,%.1f) render=%p scale=%.2f\n",
++					m_modelName.str(), p->x, p->y, p->z, (void *)m_renderObject,
++					getDrawable()->getInstanceScale());
++				fclose(debrisLog);
++				++s_drawLogCount;
++			}
++		}
++	}
++
+ 	if (m_renderObject)
+ 	{
+ 
+diff --git a/GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp b/GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp
+index 58e4903..3903f22 100644
+--- a/GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp
+@@ -503,6 +503,29 @@ void GameClient::registerDrawable( Drawable *draw )
+ /** -----------------------------------------------------------------------------------------------
+  * Redraw all views, update the GUI, play sound effects, etc.
+  */
++// PROJECT PATCH (T-047): test-only phase timer. Appends "<name>,<ms>" to ZH_PERF_SPLIT so a slow
++// client frame can be attributed to drawable updates, terrain visuals, display or particles.
++static void logClientPhase(const char *name, LARGE_INTEGER start, LARGE_INTEGER freq)
++{
++	static FILE *phaseFile = nullptr;
++	static Bool phaseInit = FALSE;
++	if (!phaseInit)
++	{
++		phaseInit = TRUE;
++		const char *splitPath = getenv("ZH_PERF_SPLIT");
++		if (splitPath && *splitPath)
++			phaseFile = fopen(splitPath, "a");
++	}
++	if (phaseFile != nullptr)
++	{
++		LARGE_INTEGER end;
++		QueryPerformanceCounter(&end);
++		fprintf(phaseFile, "%s,%.4f\n", name,
++			(double)(end.QuadPart - start.QuadPart) * 1000.0 / (double)freq.QuadPart);
++		fflush(phaseFile);
++	}
++}
++
+ DECLARE_PERF_TIMER(GameClient_update)
+ DECLARE_PERF_TIMER(GameClient_draw)
+ void GameClient::update()
+@@ -596,6 +619,9 @@ void GameClient::update()
+ 
+ 	const Bool freezeTime = TheGameEngine->isTimeFrozen() || TheGameEngine->isGameHalted();
+ 
++	LARGE_INTEGER phaseFreq, phaseStart;
++	QueryPerformanceFrequency(&phaseFreq);
++
+ 	const Int localPlayerIndex = rts::getObservedOrLocalPlayer()->getPlayerIndex();
+ 
+ 	if (!freezeTime)
+@@ -630,6 +656,7 @@ void GameClient::update()
+ 
+ 
+ 		// call the update for all client drawables
++		QueryPerformanceCounter(&phaseStart);
+ 		const Real timeScale = TheFramePacer->getActualLogicTimeScaleOverFpsRatio();
+ 		Drawable* draw = firstDrawable();
+ 		while (draw)
+@@ -682,6 +709,7 @@ void GameClient::update()
+ 			draw->updateDrawable(timeScale);
+ 			draw = next;
+ 		}
++		logClientPhase("drawables", phaseStart, phaseFreq);
+ 	}
+ 
+ #if defined(RTS_DEBUG)
+@@ -694,12 +722,16 @@ void GameClient::update()
+ 
+ 	// update the terrain visuals
+ 	{
++		QueryPerformanceCounter(&phaseStart);
+ 		TheTerrainVisual->UPDATE();
++		logClientPhase("terrainvis", phaseStart, phaseFreq);
+ 	}
+ 
+ 	// update display
+ 	{
++		QueryPerformanceCounter(&phaseStart);
+ 		TheDisplay->UPDATE();
++		logClientPhase("displayupdate", phaseStart, phaseFreq);
+ 	}
+ 
+ 	// update all particle systems
+@@ -707,8 +739,10 @@ void GameClient::update()
+ 	// moves bone-attached particle systems to the current client bone transforms of their drawables.
+ 	if( !freezeTime && TheGameLogic->hasUpdated() )
+ 	{
++		QueryPerformanceCounter(&phaseStart);
+ 		TheParticleSystemManager->setLocalPlayerIndex(localPlayerIndex);
+ 		TheParticleSystemManager->UPDATE();
++		logClientPhase("particles", phaseStart, phaseFreq);
+ 	}
+ 
+ 	{
+@@ -717,22 +751,48 @@ void GameClient::update()
+ 	// redraw all views, update the GUI
+ 	//if(TheGameLogic->getFrame() >= 2)
+ 
+-		TheDisplay->DRAW();
++		{
++			LARGE_INTEGER drawFreq, drawStart, drawEnd;
++			QueryPerformanceFrequency(&drawFreq);
++			QueryPerformanceCounter(&drawStart);
++			TheDisplay->DRAW();
++			QueryPerformanceCounter(&drawEnd);
++			static FILE *drawFile = nullptr;
++			static bool drawInit = false;
++			if (!drawInit)
++			{
++				drawInit = true;
++				const char *splitPath = getenv("ZH_PERF_SPLIT");
++				if (splitPath && *splitPath)
++					drawFile = fopen(splitPath, "a");
++			}
++			if (drawFile)
++			{
++				fprintf(drawFile, "draw,%.4f\n", (double)(drawEnd.QuadPart - drawStart.QuadPart) * 1000.0 / (double)drawFreq.QuadPart);
++				fflush(drawFile);
++			}
++		}
+ 	}
+ 
+ 	{
++		QueryPerformanceCounter(&phaseStart);
+ 		// let display string factory handle its update
+ 		TheDisplayStringManager->update();
++		logClientPhase("displaystring", phaseStart, phaseFreq);
+ 	}
+ 
+ 	{
++		QueryPerformanceCounter(&phaseStart);
+ 		// update the shell
+ 		TheShell->UPDATE();
++		logClientPhase("shell", phaseStart, phaseFreq);
+ 	}
+ 
+ 	{
++		QueryPerformanceCounter(&phaseStart);
+ 		// update the in game UI
+ 		TheInGameUI->UPDATE();
++		logClientPhase("ingameui", phaseStart, phaseFreq);
+ 	}
+ }
+ 

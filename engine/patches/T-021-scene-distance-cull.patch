@@ -1,0 +1,33 @@
+﻿diff --git a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DScene.cpp b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DScene.cpp
+index 53de7a8..7e64e5c 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DScene.cpp
++++ b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DScene.cpp
+@@ -465,6 +465,28 @@ void RTS3DScene::Visibility_Check(CameraClass * camera)
+ 
+ 				bool isVisible=!camera->Cull_Sphere(robj->Get_Bounding_Sphere());
+ 
++				// PROJECT PATCH (T-021): test-only distance cull at the render-object level.
++				// 0/unset preserves retail behavior.
++				static Real maxDrawDistance = -1.0f;
++				if (maxDrawDistance < 0.0f)
++				{
++					const char *value = getenv("ZH_DRAWDIST");
++					maxDrawDistance = value ? (Real)atof(value) : 0.0f;
++				}
++				if (isVisible && maxDrawDistance > 0.0f)
++				{
++					const Vector3 camPos = camera->Get_Position();
++					const Vector3 objPos = robj->Get_Position();
++					const Real dx = objPos.X - camPos.X;
++					const Real dy = objPos.Y - camPos.Y;
++					if (dx * dx + dy * dy > maxDrawDistance * maxDrawDistance)
++						isVisible = false;
++				}
++
++				// PROJECT PATCH (T-021): visibility-preserving distance LOD removed after
++				// measurement showed no draw-time gain (28.8 vs 27.3 ms).
++
++
+ 				if (isVisible)
+ 				{
+ 					//need to keep track of occluders and occludees for subsequent code.

@@ -1,0 +1,3 @@
+# Preserve archived source/patch bytes pinned by source.json.
+ShadowMapPrototype.inc -text
+*.patch -text

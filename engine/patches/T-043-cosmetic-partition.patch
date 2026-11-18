@@ -1,0 +1,169 @@
+﻿diff --git a/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/PartitionManager.cpp b/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/PartitionManager.cpp
+index 5f4f94c..e63d031 100644
+--- a/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/PartitionManager.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/PartitionManager.cpp
+@@ -48,6 +48,8 @@
+ //         Includes
+ //-----------------------------------------------------------------------------
+ #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
++#include <stdlib.h>
++#include <string.h>
+ 
+ #include "Common/ActionManager.h"
+ #include "Common/DiscreteCircle.h"
+@@ -1965,6 +1967,20 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
+ 	}
+ #endif
+ 
++	// PROJECT PATCH (T-043): optional pair filter. Cell membership is still updated (so culling
++	// and gameplay queries stay correct), but collision pairs that cannot produce a useful
++	// result are not built: NO_COLLIDE objects, and debris-vs-debris pairs (cosmetic only).
++	static Int s_pairFilter = -1;
++	static Int s_broadphase = -1;
++	if (s_pairFilter < 0)
++	{
++		const char *filterValue = getenv("ZH_DEBRIS_PAIR_FILTER");
++		s_pairFilter = filterValue ? atoi(filterValue) : 0;
++		const char *broadValue = getenv("ZH_DEBRIS_BROADPHASE");
++		s_broadphase = broadValue ? atoi(broadValue) : 0;
++	}
++	const Object *thisObj = getObject();
++
+ 	//DEBUG_LOG(("adding possible collision for %s",getObject()->getTemplate()->getName().str()));
+ 
+ 	CellAndObjectIntersection *myCoi = m_coiArray;
+@@ -1977,10 +1993,43 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
+ 		for (CellAndObjectIntersection *coi = cell->getFirstCoiInCell(); coi; coi = coi->getNextCoi())
+ 		{
+ 			PartitionData *that = coi->getModule();
+-			if (this != that)
++			if (this == that)
++				continue;
++
++			const Object *thatObj = that->getObject();
++
++			// PROJECT PATCH (T-046): conservative 3D broadphase. If the bounding spheres do not
++			// overlap, the narrow phase cannot report a collision, so the pair is skipped before
++			// hashing/allocation. This preserves all collisions and therefore all physics.
++			if (s_broadphase != 0 && thisObj != nullptr && thatObj != nullptr)
++			{
++				const Coord3D *p1 = thisObj->getPosition();
++				const Coord3D *p2 = thatObj->getPosition();
++				const GeometryInfo &geom1 = thisObj->getGeometryInfo();
++				const GeometryInfo &geom2 = thatObj->getGeometryInfo();
++				const Real radius = geom1.getBoundingSphereRadius()
++					+ geom2.getBoundingSphereRadius();
++				const Real dx = p1->x - p2->x;
++				const Real dy = p1->y - p2->y;
++				// Object positions are the bottom center of the geometry, so compare
++				// bounding-sphere centers rather than the raw positions.
++				const Real dz = (p1->z + geom1.getZDeltaToCenterPosition())
++					- (p2->z + geom2.getZDeltaToCenterPosition());
++				if (dx * dx + dy * dy + dz * dz > radius * radius)
++					continue;
++			}
++
++			if (s_pairFilter != 0 && thisObj != nullptr && thatObj != nullptr)
+ 			{
+-				ctList->addToContactList(this, that);
++				if (thisObj->isKindOf(KINDOF_NO_COLLIDE) || thatObj->isKindOf(KINDOF_NO_COLLIDE))
++					continue;
++				const char *thisName = thisObj->getTemplate()->getName().str();
++				const char *thatName = thatObj->getTemplate()->getName().str();
++				if (strcmp(thisName, "GenericDebris") == 0 && strcmp(thatName, "GenericDebris") == 0)
++					continue;
+ 			}
++
++			ctList->addToContactList(this, that);
+ 		}
+ 	}
+ }
+@@ -2767,6 +2811,37 @@ void PartitionManager::shutdown()
+ //DECLARE_PERF_TIMER(PartitionManager_update)
+ void PartitionManager::update()
+ {
++	// PROJECT PATCH (T-043): opt-in skip of per-frame partition churn for cosmetic debris/hulks.
++	// They are unattackable/no-collide visuals; keeping their cell membership frozen preserves the
++	// debris while removing the cost that collapsed a 1,000-unit wipe to ~1 FPS. Off by default.
++	static Int s_zhCosmeticPartitionSkip = -1;
++	if (s_zhCosmeticPartitionSkip < 0)
++	{
++		const char *skipValue = getenv("ZH_COSMETIC_PARTITION");
++		s_zhCosmeticPartitionSkip = skipValue ? atoi(skipValue) : 0;
++	}
++
++	// PROJECT PATCH (T-036): test-only partition phase timing (ZH_PARTITION_LOG=<csv>).
++	static FILE *partLog = nullptr;
++	static Bool partInit = FALSE;
++	static LARGE_INTEGER partFreq;
++	if (!partInit)
++	{
++		partInit = TRUE;
++		const char *partPath = getenv("ZH_PARTITION_LOG");
++		if (partPath && *partPath)
++		{
++			partLog = fopen(partPath, "w");
++			if (partLog != nullptr)
++			{
++				fprintf(partLog, "frame,cellsMs,collMs,contactMs\n");
++				QueryPerformanceFrequency(&partFreq);
++			}
++		}
++	}
++	Real cellsMs = 0.0f, collMs = 0.0f, contactMs = 0.0f;
++	LARGE_INTEGER partT0, partT1;
++
+ 	//USE_PERF_TIMER(PartitionManager_update)
+ 	{
+ #ifdef INTENSE_DEBUG
+@@ -2798,18 +2873,50 @@ void PartitionManager::update()
+ 			// detach it from the dirty list.
+ 			removeFromDirtyModules(dirty);
+ 
++			// PROJECT PATCH (T-043): cosmetic debris/hulks do not need gameplay partition queries.
++			if (s_zhCosmeticPartitionSkip != 0 && dirty->getObject() != nullptr)
++			{
++				const char *objName = dirty->getObject()->getTemplate()->getName().str();
++				if (strcmp(objName, "GenericDebris") == 0 || dirty->getObject()->isKindOf(KINDOF_HULK))
++					continue;
++			}
++
+ 			if (updateEm)
+ 			{
++				if (partLog) QueryPerformanceCounter(&partT0);
+ 				dirty->friend_updateCellsTouched();
++				if (partLog)
++				{
++					QueryPerformanceCounter(&partT1);
++					cellsMs += (Real)((double)(partT1.QuadPart - partT0.QuadPart) * 1000.0 / (double)partFreq.QuadPart);
++				}
+ 			}
+ 
+ 			if (collideEm && !dirty->getObject()->isKindOf(KINDOF_IMMOBILE))
+ 			{
++				if (partLog) QueryPerformanceCounter(&partT0);
+ 				dirty->addPossibleCollisions(&ctList);
++				if (partLog)
++				{
++					QueryPerformanceCounter(&partT1);
++					collMs += (Real)((double)(partT1.QuadPart - partT0.QuadPart) * 1000.0 / (double)partFreq.QuadPart);
++				}
+ 			}
+ 		}
+ 
++		if (partLog)
++		{
++			QueryPerformanceCounter(&partT0);
++		}
+ 		ctList.processContactList();
++		if (partLog)
++		{
++			QueryPerformanceCounter(&partT1);
++			contactMs += (Real)((double)(partT1.QuadPart - partT0.QuadPart) * 1000.0 / (double)partFreq.QuadPart);
++			fprintf(partLog, "%d,%.3f,%.3f,%.3f\n",
++				TheGameLogic ? TheGameLogic->getFrame() : -1, cellsMs, collMs, contactMs);
++			fflush(partLog);
++		}
+ #ifdef INTENSE_DEBUG
+ 		DEBUG_ASSERTLOG(cc==0,("updated partition info for %d objects",cc));
+ #endif

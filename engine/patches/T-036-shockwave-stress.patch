@@ -1,0 +1,545 @@
+﻿diff --git a/GeneralsMD/Code/GameEngine/Source/GameLogic/System/GameLogic.cpp b/GeneralsMD/Code/GameEngine/Source/GameLogic/System/GameLogic.cpp
+index 275119c..a7177cd 100644
+--- a/GeneralsMD/Code/GameEngine/Source/GameLogic/System/GameLogic.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameLogic/System/GameLogic.cpp
+@@ -28,6 +28,7 @@
+ ///////////////////////////////////////////////////////////////////////////////////////////////////
+ 
+ #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
++#include <string.h>
+ 
+ #include "Common/AudioAffect.h"
+ #include "Common/AudioHandleSpecialValues.h"
+@@ -65,6 +66,7 @@
+ 
+ #include "GameClient/ControlBar.h"
+ #include "GameClient/Drawable.h"
++#include "GameClient/FXList.h"
+ #include "GameClient/GameClient.h"
+ #include "GameClient/GameText.h"
+ #include "GameClient/GUICallbacks.h"
+@@ -3689,11 +3691,440 @@ extern __int64 Total_Create_Render_Obj_Time;
+ extern __int64 Total_Load_3D_Assets;
+ #endif
+ 
++// PROJECT PATCH (T-036): test-only logic phase timing (ZH_PERF_LOGIC=<csv>).
++// Separates object updates, AI, build assistant, partition manager, destroy processing and the
++// remaining tail so a wreck-field slowdown can be attributed without a full profiler.
++static FILE *s_zhLogicLog = nullptr;
++static Bool s_zhLogicInit = FALSE;
++static LARGE_INTEGER s_zhLogicFreq;
++static void zhLogicMark(LARGE_INTEGER *t) { if (s_zhLogicLog != nullptr) QueryPerformanceCounter(t); }
++static double zhLogicMs(const LARGE_INTEGER &a, const LARGE_INTEGER &b)
++{
++	return (double)(b.QuadPart - a.QuadPart) * 1000.0 / (double)s_zhLogicFreq.QuadPart;
++}
++
+ // ------------------------------------------------------------------------------------------------
+ /** Update all objects in the world by invoking their update() methods. */
+ // ------------------------------------------------------------------------------------------------
+ void GameLogic::update()
+ {
++	// PROJECT PATCH (T-015): test-only auto-start and deferred stress spawn.
++	{
++		static Bool autoStartDone = FALSE;
++		if (!autoStartDone && !isInGame())
++		{
++			const char *autoMap = getenv("ZH_MAP");
++			if (autoMap && *autoMap)
++			{
++				autoStartDone = TRUE;
++				TheWritableGlobalData->m_pendingFile.set(autoMap);
++				GameMessage *startMsg = TheMessageStream->appendMessage(GameMessage::MSG_NEW_GAME);
++				startMsg->appendIntegerArgument(GAME_SINGLE_PLAYER);
++				startMsg->appendIntegerArgument(DIFFICULTY_NORMAL);
++				startMsg->appendIntegerArgument(0);
++				// PROJECT PATCH (T-015): optional render FPS cap for headroom measurement.
++				const char *fpsValue = getenv("ZH_FPS");
++				if (fpsValue && atoi(fpsValue) > 0)
++					startMsg->appendIntegerArgument(atoi(fpsValue));
++				InitRandom(0);
++				if (TheShell)
++					TheShell->hideShell();
++			}
++		}
++	}
++	{
++		// PROJECT PATCH (T-036/T-048): scenario army spawner with dense packing and repeated
++		// spawn->nuke cycles. ZH_STRESS=<n> units (ZH_STRESS_MAX raises the 1,000 cap);
++		// ZH_STRESS_DENSE=1 packs a touching square grid using the template's bounding radius
++		// (override with ZH_STRESS_SPACING); ZH_STRESS_CYCLES=<n> respawns the army every
++		// ZH_STRESS_CYCLE_INTERVAL logic frames after clearing the previous cycle's survivors.
++		static Bool stressInit = FALSE;
++		static Bool stressArmed = FALSE;
++		static Int stressCount = 0;
++		static Bool stressDense = FALSE;
++		static Real stressSpacing = 0.0f;
++		static Int stressCycles = 1;
++		static Int stressCycleInterval = 240;
++		static Int cyclesSpawned = 0;
++		static Int cycleCounter = 0;
++		static Team *stressTeam = nullptr;
++		static const ThingTemplate *stressTemplate = nullptr;
++		static std::vector<ObjectID> stressIds;
++
++		if (!stressInit)
++		{
++			stressInit = TRUE;
++			const char *stressValue = getenv("ZH_STRESS");
++			stressCount = stressValue ? atoi(stressValue) : 0;
++			const char *maxValue = getenv("ZH_STRESS_MAX");
++			const Int stressMax = (maxValue && atoi(maxValue) > 0) ? atoi(maxValue) : 1000;
++			if (stressCount > stressMax)
++				stressCount = stressMax;
++			stressDense = getenv("ZH_STRESS_DENSE") && atoi(getenv("ZH_STRESS_DENSE")) > 0;
++			const char *spacingValue = getenv("ZH_STRESS_SPACING");
++			stressSpacing = (spacingValue && atof(spacingValue) > 0.0f) ? (Real)atof(spacingValue) : 0.0f;
++			const char *cyclesValue = getenv("ZH_STRESS_CYCLES");
++			stressCycles = (cyclesValue && atoi(cyclesValue) > 0) ? atoi(cyclesValue) : 1;
++			const char *cycleIntervalValue = getenv("ZH_STRESS_CYCLE_INTERVAL");
++			if (cycleIntervalValue && atoi(cycleIntervalValue) > 0)
++				stressCycleInterval = atoi(cycleIntervalValue);
++		}
++
++		if (!stressArmed && stressCount > 0 && isInGame() && !isInShellGame())
++		{
++			Player *stressPlayer = ThePlayerList ? ThePlayerList->getLocalPlayer() : nullptr;
++			stressTeam = stressPlayer ? stressPlayer->getDefaultTeam() : nullptr;
++			if (!stressTeam && ThePlayerList)
++				stressTeam = ThePlayerList->getNeutralPlayer()->getDefaultTeam();
++			if (!stressTeam && TheGameLogic)
++			{
++				Object *seed = TheGameLogic->getFirstObject();
++				if (seed)
++					stressTeam = seed->getTeam();
++			}
++			stressTemplate = TheThingFactory->findTemplate(
++				getenv("ZH_STRESS_TEMPLATE") && *getenv("ZH_STRESS_TEMPLATE") ? getenv("ZH_STRESS_TEMPLATE") : "AmericaTankCrusader");
++			if (stressTeam && stressTemplate)
++				stressArmed = TRUE;
++		}
++
++		if (stressArmed && isInGame() && !isInShellGame())
++		{
++			Bool spawnNow = FALSE;
++			if (cyclesSpawned == 0)
++			{
++				spawnNow = TRUE;
++			}
++			else if (cyclesSpawned < stressCycles)
++			{
++				++cycleCounter;
++				if (cycleCounter >= stressCycleInterval)
++					spawnNow = TRUE;
++			}
++
++			if (spawnNow)
++			{
++				// Clear the previous cycle's survivors so every cycle starts from the same army.
++				Int cleaned = 0;
++				for (std::vector<ObjectID>::size_type i = 0; i < stressIds.size(); ++i)
++				{
++					Object *old = TheGameLogic->findObjectByID(stressIds[i]);
++					if (old != nullptr && !old->isDestroyed())
++					{
++						TheGameLogic->destroyObject(old);
++						++cleaned;
++					}
++				}
++				stressIds.clear();
++
++				++cyclesSpawned;
++				cycleCounter = 0;
++
++				// The template's cached bounding circle is not always computed (it read as 1.0),
++				// so derive the footprint radius from the geometry itself.
++				const GeometryInfo& geom = stressTemplate->getTemplateGeometryInfo();
++				Real radius = geom.getMajorRadius();
++				if (geom.getGeomType() == GEOMETRY_BOX)
++					radius = (Real)sqrt(geom.getMajorRadius() * geom.getMajorRadius() + geom.getMinorRadius() * geom.getMinorRadius());
++				if (radius < 1.0f)
++					radius = geom.getBoundingCircleRadius();
++				if (radius < 1.0f)
++					radius = 10.0f;
++				const Real spacing = stressSpacing > 0.0f ? stressSpacing : radius * 2.0f + 2.0f;
++				Int cols = stressDense ? (Int)ceil(sqrt((double)stressCount)) : 25;
++				if (cols < 1)
++					cols = 1;
++				const Int rows = (stressCount + cols - 1) / cols;
++				Coord3D center = TheTacticalView ? TheTacticalView->getPosition() : Coord3D{ 0, 0, 0 };
++				const Bool atCamera = getenv("ZH_STRESS_AT_CAMERA") && atoi(getenv("ZH_STRESS_AT_CAMERA")) > 0;
++
++				FILE *stressLog = fopen("stress.log", cyclesSpawned == 1 ? "w" : "a");
++				if (stressLog)
++				{
++					fprintf(stressLog, "spawn cycle=%d frame=%d count=%d cols=%d rows=%d spacing=%.2f radius=%.2f cleaned=%d\n",
++						cyclesSpawned, TheGameLogic->getFrame(), stressCount, cols, rows, spacing, radius, cleaned);
++					fclose(stressLog);
++				}
++
++				for (Int i = 0; i < stressCount; ++i)
++				{
++					Coord3D pos = center;
++					if (!atCamera)
++					{
++						pos.x += ((Real)(i % cols) - (Real)(cols - 1) * 0.5f) * spacing;
++						pos.y += ((Real)(i / cols) - (Real)(rows - 1) * 0.5f) * spacing;
++					}
++					pos.z = TheTerrainLogic->getGroundHeight(pos.x, pos.y);
++					Object *obj = TheThingFactory->newObject(stressTemplate, stressTeam);
++					if (obj)
++					{
++						obj->setPosition(&pos);
++						stressIds.push_back(obj->getID());
++					}
++				}
++			}
++		}
++	}
++	{
++		// PROJECT PATCH (T-015): test-only shadow toggle for cost attribution.
++		static Bool shadowToggleDone = FALSE;
++		if (!shadowToggleDone && isInGame() && !isInShellGame())
++		{
++			const char *shadowValue = getenv("ZH_NOSHADOW");
++			if (shadowValue && atoi(shadowValue) > 0)
++			{
++				shadowToggleDone = TRUE;
++				TheWritableGlobalData->m_useShadowVolumes = FALSE;
++				TheWritableGlobalData->m_useShadowDecals = FALSE;
++			}
++		}
++	}
++
++	{
++		// PROJECT PATCH (T-036): test-only steady-state controls. ZH_MAXPARTICLES overrides the
++		// runtime particle cap; ZH_STRESS_RESPAWN keeps a destruction scene populated so runs
++		// are comparable after the initial army has been destroyed.
++		static Bool extraInit = FALSE;
++		static Int maxParticles = -1;
++		static Int respawnCount = 0;
++		static Int respawnInterval = 60;
++		static Int respawnCounter = 0;
++		static Bool particlesApplied = FALSE;
++		if (!extraInit)
++		{
++			extraInit = TRUE;
++			const char *mp = getenv("ZH_MAXPARTICLES");
++			maxParticles = mp ? atoi(mp) : -1;
++			const char *rc = getenv("ZH_STRESS_RESPAWN");
++			respawnCount = rc ? atoi(rc) : 0;
++			const char *ri = getenv("ZH_STRESS_RESPAWN_INTERVAL");
++			if (ri && atoi(ri) > 0)
++				respawnInterval = atoi(ri);
++		}
++		if (isInGame() && !isInShellGame())
++		{
++			if (!particlesApplied && maxParticles >= 0)
++			{
++				particlesApplied = TRUE;
++				TheWritableGlobalData->m_maxParticleCount = maxParticles;
++			}
++			if (respawnCount > 0 && ++respawnCounter >= respawnInterval)
++			{
++				respawnCounter = 0;
++				Player *respawnPlayer = ThePlayerList ? ThePlayerList->getLocalPlayer() : nullptr;
++				Team *respawnTeam = respawnPlayer ? respawnPlayer->getDefaultTeam() : nullptr;
++				const ThingTemplate *respawnTemplate = TheThingFactory->findTemplate(
++					getenv("ZH_STRESS_TEMPLATE") && *getenv("ZH_STRESS_TEMPLATE") ? getenv("ZH_STRESS_TEMPLATE") : "AmericaTankCrusader");
++				if (respawnTeam && respawnTemplate && TheTerrainLogic)
++				{
++					Coord3D center = TheTacticalView ? TheTacticalView->getPosition() : Coord3D{ 0, 0, 0 };
++					for (Int i = 0; i < respawnCount; ++i)
++					{
++						Coord3D pos = center;
++						pos.x += (Real)((rand() % 2001) - 1000) * 0.5f;
++						pos.y += (Real)((rand() % 2001) - 1000) * 0.5f;
++						pos.z = TheTerrainLogic->getGroundHeight(pos.x, pos.y);
++						Object *obj = TheThingFactory->newObject(respawnTemplate, respawnTeam);
++						if (obj)
++							obj->setPosition(&pos);
++					}
++				}
++			}
++		}
++	}
++	{
++		// PROJECT PATCH (T-036): test-only nuke FX stress. Detonates a weapon FX list near the
++		// tactical camera and optionally kills objects inside the same radius, so the late-game
++		// "several nukes destroying an army" frame cost can be measured without UI input.
++		static Bool nukeInit = FALSE;
++		static Int nukeCount = 0;
++		static Int nukeInterval = 90;
++		static Real nukeRadius = 150.0f;
++		static Real nukeDamage = 0.0f;
++		static const FXList *nukeFx = nullptr;
++		static const char *nukeVictimName = nullptr;
++		static const ThingTemplate *realNuke = nullptr;
++		static Int nukeCounter = 0;
++		if (!nukeInit)
++		{
++			nukeInit = TRUE;
++			const char *nukeValue = getenv("ZH_NUKEFX");
++			nukeCount = nukeValue ? atoi(nukeValue) : 0;
++			const char *intervalValue = getenv("ZH_NUKEFX_INTERVAL");
++			if (intervalValue && atoi(intervalValue) > 0)
++				nukeInterval = atoi(intervalValue);
++			// Test-only phase offset: start the periodic counter part-way so a nuke lands
++			// mid-way through a spawn cycle instead of on the spawn frame.
++			const char *offsetValue = getenv("ZH_NUKEFX_OFFSET");
++			if (offsetValue && atoi(offsetValue) > 0)
++				nukeCounter = atoi(offsetValue);
++			const char *radiusValue = getenv("ZH_NUKEFX_RADIUS");
++			if (radiusValue && atof(radiusValue) > 0.0)
++				nukeRadius = (Real)atof(radiusValue);
++			const char *damageValue = getenv("ZH_NUKEFX_DAMAGE");
++			if (damageValue)
++				nukeDamage = (Real)atof(damageValue);
++			const char *nameValue = getenv("ZH_NUKEFX_NAME");
++			const char *fxName = (nameValue && *nameValue) ? nameValue : "WeaponFX_NukeCannon";
++			nukeFx = TheFXListStore ? TheFXListStore->findFXList(fxName) : nullptr;
++			const char *victimName = getenv("ZH_NUKEFX_VICTIM");
++			if (victimName == nullptr || *victimName == 0)
++				victimName = getenv("ZH_STRESS_TEMPLATE");
++			if (victimName && stricmp(victimName, "any") == 0)
++				nukeVictimName = nullptr;
++			else
++				nukeVictimName = (victimName && *victimName) ? victimName : "AmericaTankCrusader";
++			// PROJECT PATCH (T-036): optional real nuke warhead. Spawning this object and killing
++			// it runs the actual NeutronMissileSlowDeathBehavior (FX_Nuke, 8 blast waves, damage,
++			// topple, push) instead of a direct FX list.
++			const char *realName = getenv("ZH_REALNUKE");
++			realNuke = (realName && *realName && TheThingFactory) ? TheThingFactory->findTemplate(realName) : nullptr;
++			FILE *nukeLog = fopen("nukefx.log", "w");
++			if (nukeLog)
++			{
++				fprintf(nukeLog, "count=%d interval=%d radius=%.1f damage=%.1f fx=%p real=%p\n",
++					nukeCount, nukeInterval, nukeRadius, nukeDamage, (const void *)nukeFx, (const void *)realNuke);
++				fclose(nukeLog);
++			}
++		}
++		if (nukeCount > 0 && (nukeFx != nullptr || realNuke != nullptr) && isInGame() && !isInShellGame())
++		{
++			if (++nukeCounter >= nukeInterval)
++			{
++				// PROJECT PATCH (T-047): test-only timing of one scripted nuke tick (FX + damage).
++				LARGE_INTEGER nukeT0, nukeT1, nukeFreq;
++				QueryPerformanceFrequency(&nukeFreq);
++				QueryPerformanceCounter(&nukeT0);
++				nukeCounter = 0;
++				{
++					FILE *nukeCycleLog = fopen("stress.log", "a");
++					if (nukeCycleLog)
++					{
++						fprintf(nukeCycleLog, "nuke frame=%d warheads=%d radius=%.1f real=%d\n",
++							TheGameLogic->getFrame(), nukeCount, nukeRadius, realNuke ? 1 : 0);
++						fclose(nukeCycleLog);
++					}
++				}
++				Coord3D center = TheTacticalView ? TheTacticalView->getPosition() : Coord3D{ 0, 0, 0 };
++				for (Int i = 0; i < nukeCount; ++i)
++				{
++					Coord3D pos = center;
++					pos.x += (Real)((rand() % 2001) - 1000) * 0.001f * nukeRadius;
++					pos.y += (Real)((rand() % 2001) - 1000) * 0.001f * nukeRadius;
++					pos.z = TheTerrainLogic ? TheTerrainLogic->getGroundHeight(pos.x, pos.y) : center.z;
++					if (realNuke != nullptr)
++					{
++						Team *nukeTeam = (ThePlayerList && ThePlayerList->getLocalPlayer())
++							? ThePlayerList->getLocalPlayer()->getDefaultTeam() : nullptr;
++						Object *nukeObject = TheThingFactory->newObject(realNuke, nukeTeam);
++						if (nukeObject != nullptr)
++						{
++							nukeObject->setPosition(&pos);
++							nukeObject->kill();
++						}
++					}
++					else
++					{
++						FXList::doFXPos(nukeFx, &pos);
++					}
++					if (realNuke == nullptr && nukeDamage > 0.0f && TheGameLogic)
++					{
++						ObjectID victims[1024];
++						Int victimCount = 0;
++						for (Object *obj = TheGameLogic->getFirstObject(); obj && victimCount < 1024; obj = obj->getNextObject())
++						{
++							if (nukeVictimName && stricmp(obj->getTemplate()->getName().str(), nukeVictimName) != 0)
++								continue;
++							const Coord3D *objPos = obj->getPosition();
++							Real dx = objPos->x - pos.x;
++							Real dy = objPos->y - pos.y;
++							if (dx * dx + dy * dy <= nukeRadius * nukeRadius)
++								victims[victimCount++] = obj->getID();
++						}
++						for (Int v = 0; v < victimCount; ++v)
++						{
++							Object *victim = TheGameLogic->findObjectByID(victims[v]);
++							if (victim)
++							{
++								DamageInfo damageInfo;
++								damageInfo.in.m_sourceID = INVALID_ID;
++								damageInfo.in.m_damageType = DAMAGE_EXPLOSION;
++								damageInfo.in.m_deathType = DEATH_NORMAL;
++								damageInfo.in.m_amount = nukeDamage;
++								victim->attemptDamage(&damageInfo);
++							}
++						}
++					}
++				}
++
++				// PROJECT PATCH (T-047): report slow scripted nuke ticks (ZH_OCL_LOG).
++				QueryPerformanceCounter(&nukeT1);
++				{
++					const char *oclLogPath = getenv("ZH_OCL_LOG");
++					if (oclLogPath && *oclLogPath)
++					{
++						const Real ms = (Real)(nukeT1.QuadPart - nukeT0.QuadPart) * 1000.0f / (Real)nukeFreq.QuadPart;
++						if (ms >= 2.0f)
++						{
++							FILE *oclLog = fopen(oclLogPath, "a");
++							if (oclLog != nullptr)
++							{
++								fprintf(oclLog, "nuketick count=%d ms=%.1f\n", nukeCount, ms);
++								fclose(oclLog);
++							}
++						}
++					}
++				}
++			}
++		}
++	}
++
++	{
++		// PROJECT PATCH (T-036): object census for destruction attribution. Logs total objects and
++		// how many are hulks / generic debris every 60 logic frames (ZH_OBJLOG=<path>).
++		static Bool censusInit = FALSE;
++		static FILE *censusFile = nullptr;
++		static Int censusCounter = 0;
++		if (!censusInit)
++		{
++			censusInit = TRUE;
++			const char *censusPath = getenv("ZH_OBJLOG");
++			if (censusPath && *censusPath)
++				censusFile = fopen(censusPath, "w");
++		}
++		if (censusFile && TheGameLogic && isInGame() && !isInShellGame())
++		{
++			if (++censusCounter >= 60)
++			{
++				censusCounter = 0;
++				Int totalObjects = 0, hulkObjects = 0, debrisObjects = 0;
++				Int debrisDrawables = 0, debrisVisible = 0;
++				for (Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject())
++				{
++					++totalObjects;
++					const char *name = obj->getTemplate()->getName().str();
++					if (strstr(name, "Hulk") != nullptr)
++						++hulkObjects;
++					else if (strcmp(name, "GenericDebris") == 0)
++					{
++						++debrisObjects;
++						Drawable *drawable = obj->getDrawable();
++						if (drawable != nullptr)
++						{
++							++debrisDrawables;
++							if (drawable->isVisible())
++								++debrisVisible;
++						}
++					}
++				}
++				fprintf(censusFile, "frame=%d total=%d hulks=%d debris=%d debrisD=%d debrisV=%d\n",
++					TheGameLogic->getFrame(), totalObjects, hulkObjects, debrisObjects,
++					debrisDrawables, debrisVisible);
++				fflush(censusFile);
++			}
++		}
++	}
++
+ 	USE_PERF_TIMER(GameLogic_update)
+ 	PROFILER_SECTION_COLOR(0x4CAF50);
+ 
+@@ -3814,6 +4245,24 @@ void GameLogic::update()
+ 		processCommandList( TheCommandList );
+ 	}
+ 
++	if (!s_zhLogicInit)
++	{
++		s_zhLogicInit = TRUE;
++		const char *logicPath = getenv("ZH_PERF_LOGIC");
++		if (logicPath && *logicPath)
++		{
++			s_zhLogicLog = fopen(logicPath, "w");
++			if (s_zhLogicLog != nullptr)
++			{
++				fprintf(s_zhLogicLog, "frame,updates,ai,build,partition,destroy,rest\n");
++				QueryPerformanceFrequency(&s_zhLogicFreq);
++			}
++		}
++	}
++	LARGE_INTEGER zlUpdates0, zlUpdates1, zlAi0, zlAi1, zlBuild0, zlBuild1;
++	LARGE_INTEGER zlPartition0, zlPartition1, zlDestroy0, zlDestroy1, zlEnd0, zlEnd1;
++	zhLogicMark(&zlUpdates0);
++
+ #ifdef ALLOW_NONSLEEPY_UPDATES
+ 	{
+ 		for (std::list<UpdateModulePtr>::const_iterator it = m_normalUpdates.begin(); it != m_normalUpdates.end(); ++it)
+@@ -3899,21 +4348,29 @@ void GameLogic::update()
+ 	}
+ 
+ 	validateSleepyUpdate();
++	zhLogicMark(&zlUpdates1);
++	zhLogicMark(&zlAi0);
+ 
+ 	// update the Artificial Intelligence system
+ 	{
+ 		TheAI->UPDATE();
+ 	}
++	zhLogicMark(&zlAi1);
++	zhLogicMark(&zlBuild0);
+ 
+ 	// production updates
+ 	{
+ 		TheBuildAssistant->UPDATE();
+ 	}
++	zhLogicMark(&zlBuild1);
++	zhLogicMark(&zlPartition0);
+ 
+ 	// update partition info
+ 	{
+ 		ThePartitionManager->UPDATE();
+ 	}
++	zhLogicMark(&zlPartition1);
++	zhLogicMark(&zlDestroy0);
+ 
+ 	//
+ 	// End of frame clean-up
+@@ -3921,6 +4378,8 @@ void GameLogic::update()
+ 
+ 	// destroy all pending objects
+ 	processDestroyList();
++	zhLogicMark(&zlDestroy1);
++	zhLogicMark(&zlEnd0);
+ 
+ 	// reset the command list, destroying all messages
+ 	TheCommandList->reset();
+@@ -3945,6 +4404,19 @@ void GameLogic::update()
+ 
+ 
+ 	// increment world time
++	zhLogicMark(&zlEnd1);
++	if (s_zhLogicLog != nullptr)
++	{
++		fprintf(s_zhLogicLog, "%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n",
++			m_frame,
++			zhLogicMs(zlUpdates0, zlUpdates1),
++			zhLogicMs(zlAi0, zlAi1),
++			zhLogicMs(zlBuild0, zlBuild1),
++			zhLogicMs(zlPartition0, zlPartition1),
++			zhLogicMs(zlDestroy0, zlDestroy1),
++			zhLogicMs(zlEnd0, zlEnd1));
++		fflush(s_zhLogicLog);
++	}
+ 	if (!m_startNewGame)
+ 	{
+ 		m_frame++;

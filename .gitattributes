@@ -1,0 +1,15 @@
+# Normalize text files for cross-agent/tool consistency.
+* text=auto eol=lf
+
+*.md    text eol=lf
+*.json  text eol=lf
+*.py    text eol=lf
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.png   binary
+*.jpg   binary
+*.bik   binary
+*.big   binary
+*.dll   binary
+*.exe   binary
+*.dat   binary

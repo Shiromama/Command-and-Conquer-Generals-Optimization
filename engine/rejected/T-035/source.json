@@ -1,0 +1,16 @@
+{
+  "vendor_base_commit": "0ff1220caf8dbcf254e4ad63ea8e907f22089624",
+  "root_base_commit": "f08ec8fa0441817e06ec7ea187078f0f265d02b5",
+  "hook_paths": [
+    "GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DVolumetricShadow.h",
+    "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DShadow.cpp",
+    "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DVolumetricShadow.cpp"
+  ],
+  "prototype_path": "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Shadow/ShadowMapPrototype.inc",
+  "files": {
+    "base-engine.patch": "179d7b868aa031c4364307808515f6f357d595e1fa768ea5d683b49c0bd34f87",
+    "renderer-hooks.patch": "317b3e733a9d367edf2994e1da26344e1fc1958b5af48ddf7f38466d913d1bf9",
+    "ShadowMapPrototype.inc": "52d3057fde81165a671be990afac7987440dc9fa7bf0c456d5a6dd3d189f4613"
+  },
+  "provenance": "Reconstructed on 2026-11-18 from retained local archive and tracked stencil-only checkpoint. No claim that rebuilding reproduces historical linker metadata or that source provenance was attested at measurement time."
+}
