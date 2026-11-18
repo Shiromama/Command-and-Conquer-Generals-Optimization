@@ -13,9 +13,9 @@ decisions, verification results, and remaining work.
 
 ## Quick start
 
-**Download.** Check [Releases](https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases)
-for the Windows patcher ZIP. The prebuilt download is pending. To experiment
-with the source today, see the [engine build guide](engine/README.md).
+**Download.** [Windows patcher ZIP](https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases/download/v0.1.0-alpha.1/zh-patcher-0.1.0-alpha.1.zip)
+· [Release notes and checksum](https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases/tag/v0.1.0-alpha.1).
+To build from source, see the [engine build guide](engine/README.md).
 
 Once you have the patcher ZIP:
 
@@ -24,16 +24,8 @@ Once you have the patcher ZIP:
 2. Extract the entire patcher ZIP into a separate folder. Open `Patcher.cmd`,
    select your game copy, and choose **Install**.
 3. Open `Generals.exe` from the patched copy and start a singleplayer skirmish.
-   For ShockWave, open PowerShell in the patcher folder and run this command
-   with the path to your game copy:
-
-   ```powershell
-   .\zh-patcher.exe play --game-dir 'C:\Games\ZeroHourCopy'
-   ```
-
 4. To restore the original files, close the game, open `Patcher.cmd`, select the
-   same copy, and choose **Uninstall**. Keep the `.zhpatch-alpha` backup folder
-   and the matching patcher package until you're done testing.
+   same copy, and choose **Uninstall**.
 
 ## What changed
 
