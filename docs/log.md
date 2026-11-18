@@ -4,7 +4,7 @@
 > evidence. Never rewrite an entry; add a correction entry instead.
 > The latest date here must equal `updated_at` in [`state.json`](state.json).
 
-## 2026-11-14 â€” P0: agent-readable documentation base
+## 2026-11-14 — P0: agent-readable documentation base
 
 **Tasks:** T-001, T-002, T-003, T-004
 
@@ -14,21 +14,21 @@ interpretable by any agent, across sessions, before technical work begins.
 
 **Created**
 
-- `AGENTS.md` â€” entry point: repository map, hard rules, evidence labels, update protocol.
+- `AGENTS.md` — entry point: repository map, hard rules, evidence labels, update protocol.
 - `README.md`, `.gitignore` (game install + artifacts excluded).
-- `docs/INDEX.md` â€” document catalog, conventions, update triggers.
-- `docs/project-brief.md` â€” goal, scope, constraints, proposed success criteria.
-- `docs/environment.md` â€” verified OS/toolchain/hashes/config snapshot.
-- `docs/game-inventory.md` â€” archive/binary/data inventory and launcher notes.
-- `docs/architecture.md` â€” current component model + four Rust attachment hypotheses.
-- `docs/roadmap.md` â€” P0â€“P4 phases, exit criteria, risk register.
-- `docs/tasks/BOARD.md` â€” task ledger `T-001`â€¦`T-010`.
-- `docs/decisions/` â€” ADR-0001â€¦ADR-0004 + template.
+- `docs/INDEX.md` — document catalog, conventions, update triggers.
+- `docs/project-brief.md` — goal, scope, constraints, proposed success criteria.
+- `docs/environment.md` — verified OS/toolchain/hashes/config snapshot.
+- `docs/game-inventory.md` — archive/binary/data inventory and launcher notes.
+- `docs/architecture.md` — current component model + four Rust attachment hypotheses.
+- `docs/roadmap.md` — P0–P4 phases, exit criteria, risk register.
+- `docs/tasks/BOARD.md` — task ledger `T-001`…`T-010`.
+- `docs/decisions/` — ADR-0001…ADR-0004 + template.
 - `docs/research/TEMPLATE.md`, `docs/experiments/TEMPLATE.md`.
 - `docs/glossary.md`, `docs/state.json`, `docs/log.md`.
 - `docs/research/` placeholder conventions; `artifacts/README.md`.
-- `.opencode/continuity.md` â€” cross-session checkpoint.
-- `tools/check_docs.py` â€” validator (links, state schema, log freshness, task/ADR integrity)
+- `.opencode/continuity.md` — cross-session checkpoint.
+- `tools/check_docs.py` — validator (links, state schema, log freshness, task/ADR integrity)
   with `--self-test`.
 
 **Key verified facts**
@@ -45,15 +45,15 @@ ADR-0003 (local git, binaries excluded), ADR-0004 (defer BIG tooling per user di
 **Evidence / verification**
 
 - All file facts from PowerShell `Get-ChildItem`, `Get-FileHash`, PE `VersionInfo`, and direct
-  file reads on 2026-11-14; sizes/hashes recorded in `docs/environment.md` Â§3.
-- `python tools/check_docs.py` â†’
+  file reads on 2026-11-14; sizes/hashes recorded in `docs/environment.md` §3.
+- `python tools/check_docs.py` →
 
   ```
   Checked 18 markdown files, 99 relative links, 10 tasks, 4 ADRs.
   OK: documentation system is consistent
   ```
 
-- `python tools/check_docs.py --self-test` â†’
+- `python tools/check_docs.py --self-test` →
 
   ```
   PASS: clean fixture validates
@@ -66,19 +66,19 @@ ADR-0003 (local git, binaries excluded), ADR-0004 (defer BIG tooling per user di
 - Repository initialized as a local git repo and committed; `git ls-files` contains docs/tools
   only, never the game installation (see next entry for the commit evidence).
 
-## 2026-11-14 â€” P0 verification and first commit
+## 2026-11-14 — P0 verification and first commit
 
 **Tasks:** T-001, T-002, T-003, T-004
 
-- Commit `ed545a2` â€” `T-001 T-002 T-003 T-004: P0 agent-readable documentation base`.
-- `python tools/check_docs.py` â†’ `Checked 18 markdown files, 99 relative links, 10 tasks,
+- Commit `ed545a2` — `T-001 T-002 T-003 T-004: P0 agent-readable documentation base`.
+- `python tools/check_docs.py` → `Checked 18 markdown files, 99 relative links, 10 tasks,
   4 ADRs.` / `OK: documentation system is consistent` (exit 0).
-- `python tools/check_docs.py --self-test` â†’ 4 Ã— `PASS`, exit 0.
-- `git ls-files` â†’ 24 tracked files, **0** under `Command and Conquer Generals Zero Hour/`.
+- `python tools/check_docs.py --self-test` → 4 × `PASS`, exit 0.
+- `git ls-files` → 24 tracked files, **0** under `Command and Conquer Generals Zero Hour/`.
 - Cold-start comprehension test by an independent agent (read-only) confirms the entry point
   answers phase, next actions, constraints, and document locations without chat history.
 
-## 2026-11-14 â€” Cold-start review fixes
+## 2026-11-14 — Cold-start review fixes
 
 **Tasks:** T-001, T-004
 
@@ -89,37 +89,37 @@ verification, evidence labels, and open questions.
 Result: all eight questions were answered from the docs; no broken links. Defects found and
 fixed:
 
-- Circular dependency T-005 â†” T-006 on the board â†’ T-005 is the first P1 step and unblocks T-006.
-- `state.next_actions` omitted T-008 and listed T-009 while T-009 was dependency-blocked â†’
+- Circular dependency T-005 ↔ T-006 on the board → T-005 is the first P1 step and unblocks T-006.
+- `state.next_actions` omitted T-008 and listed T-009 while T-009 was dependency-blocked →
   T-008 added, T-009 left on the board with "after T-006 and T-008".
-- `docs/INDEX.md` Â§3.5 overstated the placeholder check â†’ now matches the validator
+- `docs/INDEX.md` §3.5 overstated the placeholder check → now matches the validator
   (`{{`, `TODO:`, `FIXME`; `TEMPLATE.md` skipped). The validator also now ignores inline
   code spans so documents can describe those markers without failing.
-- Archive count was imprecise â†’ 21 root archives + a 24-byte `BIGF` stub at
+- Archive count was imprecise → 21 root archives + a 24-byte `BIGF` stub at
   `launcher/MapsZH.big`; inventory, architecture, and glossary corrected.
-- No guidance for runtime writes on first launch â†’ risk documented in `game-inventory.md` Â§4
+- No guidance for runtime writes on first launch → risk documented in `game-inventory.md` §4
   and added to T-005 scope (prefer launching a copy, record before/after hashes).
 
-False positive: the reviewer reported "no `.git` directory". `Test-Path .git` â†’ `True`,
+False positive: the reviewer reported "no `.git` directory". `Test-Path .git` → `True`,
 `git log` shows both commits, and `git ls-files` reports 24 tracked files; the reviewer's
 sandbox did not expose repository metadata. No change made.
 
-Verification: `python tools/check_docs.py` â†’ `OK` (exit 0); `--self-test` â†’ all PASS. Fixes
+Verification: `python tools/check_docs.py` → `OK` (exit 0); `--self-test` → all PASS. Fixes
 committed in the following commit.
 
-## 2026-11-14 â€” Issue/bug register added
+## 2026-11-14 — Issue/bug register added
 
 **Tasks:** T-011
 
 Added a dedicated place for problems, as distinct from tasks, decisions, and experiments:
 
-- `docs/issues/README.md` â€” purpose, when to file, severity levels, status lifecycle,
+- `docs/issues/README.md` — purpose, when to file, severity levels, status lifecycle,
   blocking-issue rules, index of current issues.
-- `docs/issues/TEMPLATE.md` â€” required fields: symptom, reproduction/evidence, impact, root
+- `docs/issues/TEMPLATE.md` — required fields: symptom, reproduction/evidence, impact, root
   cause, workaround, resolution/verification.
 - Seeded real entries: ISSUE-0001 (reference install may be mutated by a normal launch),
   ISSUE-0002 (GenTool owns the `d3d8.dll` slot), ISSUE-0003 (INI rules unreadable until
-  `INIZH.big` is parsed), ISSUE-0004 (validator false positive on documented markers â€” fixed
+  `INIZH.big` is parsed), ISSUE-0004 (validator false positive on documented markers — fixed
   with the inline-code fix and kept as a worked example).
 - `AGENTS.md` now requires filing an issue on any failure/contradiction/blocker, marking the
   task `Blocked` and updating `state.blockers` when it stops progress, and closing only with
@@ -128,9 +128,9 @@ Added a dedicated place for problems, as distinct from tasks, decisions, and exp
   date, task link, resolution section, index listing, and uniqueness; self-test injects a
   duplicate issue ID.
 
-Verification: `python tools/check_docs.py` â†’ `OK`; `--self-test` â†’ all PASS.
+Verification: `python tools/check_docs.py` → `OK`; `--self-test` → all PASS.
 
-## 2026-11-14 Ã¢â‚¬â€ P1: pristine baseline, work copy, fullscreen fix
+## 2026-11-14 — P1: pristine baseline, work copy, fullscreen fix
 
 **Tasks:** T-005, T-012, T-018, T-019
 
@@ -173,7 +173,7 @@ Verification: `python tools/check_docs.py` â†’ `OK`; `--self-test` â†’
   environment, architecture, glossary, and continuity.
 
 
-## 2026-11-14 Ã¢â‚¬â€ P1: source build, DPI/fullscreen, frame timing
+## 2026-11-14 — P1: source build, DPI/fullscreen, frame timing
 
 **Tasks:** T-014, T-015, T-017, T-023
 
@@ -184,13 +184,13 @@ Verification: `python tools/check_docs.py` â†’ `OK`; `--self-test` â†’
   `-DCMAKE_GENERATOR_INSTANCE=...Community -T v143`.
 - `z_generals` built successfully: `build/engine-vs-community/GeneralsMD/Release/generalszh.exe`,
   `BUILD_EXIT=0`.
-- Baseline source exe `F8CAC4C0Ã¢â‚¬Â¦0998`; current DPI+logger exe `4D6589F6Ã¢â‚¬Â¦091B`.
+- Baseline source exe `F8CAC4C0…0998`; current DPI+logger exe `4D6589F6…091B`.
 
 **DPI / fullscreen**
 
 - Added per-monitor DPI awareness at `WinMain` (patch `engine/patches/T-023-dpi-awareness.patch`).
-- DPI-aware query: process awareness 2; borderless client **1920Ãƒâ€”1080**; exclusive client
-  **1920Ãƒâ€”1080**; previously 1536Ãƒâ€”864 at 125% scaling.
+- DPI-aware query: process awareness 2; borderless client **1920×1080**; exclusive client
+  **1920×1080**; previously 1536×864 at 125% scaling.
 - Exclusive fullscreen survived two Alt+Tab cycles.
 - GenTool proxy crashes the rebuilt exe (`0xC0000005`); system D3D8 works. Staging now disables
   GenTool by default (ISSUE-0008).
@@ -210,7 +210,7 @@ Verification: `python tools/check_docs.py` â†’ `OK`; `--self-test` â†’
 - state/board/roadmap/continuity updated
 
 
-## 2026-11-14 Ã¢â‚¬â€ Clean rebuild and stress-harness attempt
+## 2026-11-14 — Clean rebuild and stress-harness attempt
 
 - Rebuilt after reverting the test-only stress hook; current DPI+logger exe is
   `595161836AC847F5A01DB3A3701E3EDF23E0F9A1411BF2EC2022B2395EC25A4B`.
@@ -222,7 +222,7 @@ Verification: `python tools/check_docs.py` â†’ `OK`; `--self-test` â†’
 - Entity-heavy benchmark remains blocked (ISSUE-0009); frame logger and DPI patch are verified.
 
 
-## 2026-11-14 Ã¢â‚¬â€ Scenario attempts and clean rebuild
+## 2026-11-14 — Scenario attempts and clean rebuild
 
 - Tried `ZH_MAP` automatic map start and deferred `ZH_STRESS` spawning. The hook found a valid
   team (`team=1D14E5D0`) and template `AmericaTankCrusader`, but `startNewGame` from the menu
@@ -233,7 +233,7 @@ Verification: `python tools/check_docs.py` â†’ `OK`; `--self-test` â†’
 - Entity-heavy benchmark remains blocked (ISSUE-0009); no unverified stress patch shipped.
 
 
-## 2026-11-14 Ã¢â‚¬â€ Final scenario retry and clean engine
+## 2026-11-14 — Final scenario retry and clean engine
 
 - Retried deferred stress spawn through the Debug Load Map UI; the map list stayed open and no
   playable match was reached. Hook reverted.
@@ -243,7 +243,7 @@ Verification: `python tools/check_docs.py` â†’ `OK`; `--self-test` â†’
 - Entity-heavy baseline remains blocked on a valid scenario (ISSUE-0009).
 
 
-## 2026-11-15 Ã¢â‚¬â€ Entity-heavy benchmark and first measured optimization
+## 2026-11-15 — Entity-heavy benchmark and first measured optimization
 
 **Tasks:** T-015, T-017, T-024
 
@@ -252,7 +252,7 @@ Verification: `python tools/check_docs.py` â†’ `OK`; `--self-test` â†’
 creates a valid team. Harness exported as `engine/patches/T-015-benchmark-harness.patch`
 (test-only; do not ship in a normal build).
 
-**Baseline (3 runs, 1,000 units, 1920Ãƒâ€”1080, AA 14 Ã¢â€ â€™ 8Ãƒâ€” MSAA):**
+**Baseline (3 runs, 1,000 units, 1920×1080, AA 14 → 8× MSAA):**
 
 ```
 median: 59.41 / 62.62 / 58.57 ms
@@ -262,14 +262,14 @@ p95:    67.02 / 69.19 / 66.33 ms
 Split timing: `client` median 51.87 ms, `draw` median 50.32 ms, `logic` median 4.49 ms.
 
 **Root cause found.** `OptionPreferences::getAntiAliasing()` clamps `AntiAliasing = 14` to
-**8Ãƒâ€” MSAA** (`OptionPreferences.cpp:70-80`, `ww3d.cpp:2031-2049`). Reducing AA:
+**8× MSAA** (`OptionPreferences.cpp:70-80`, `ww3d.cpp:2031-2049`). Reducing AA:
 
 | AA | Effective | Median |
 |---:|---|---:|
-| 14 | 8Ãƒâ€” | 59.41Ã¢â‚¬â€œ62.62 ms |
-| 4 | 4Ãƒâ€” | 48.39 ms |
-| 2 | 2Ãƒâ€” | 45.01 ms |
-| 0 | off | 34.76Ã¢â‚¬â€œ36.50 ms |
+| 14 | 8× | 59.41–62.62 ms |
+| 4 | 4× | 48.39 ms |
+| 2 | 2× | 45.01 ms |
+| 0 | off | 34.76–36.50 ms |
 
 **Optimized (3 runs, AA 0):**
 
@@ -278,21 +278,21 @@ median: 34.76 / 35.05 / 36.50 ms
 p95:    39.45 / 40.20 / 41.95 ms
 ```
 
-Median-of-medians **59.41 Ã¢â€ â€™ 35.05 ms (1.70Ãƒâ€”)**; effective FPS **16.8 Ã¢â€ â€™ 28.5**. Draw time
-**50.32 Ã¢â€ â€™ 27.26 ms**. Original Options.ini backed up at
+Median-of-medians **59.41 → 35.05 ms (1.70×)**; effective FPS **16.8 → 28.5**. Draw time
+**50.32 → 27.26 ms**. Original Options.ini backed up at
 `artifacts/options-backups/options-2026-11-15-005413.ini`.
 
 **Changes:**
 
-- `tools/apply-options-profile.ps1` Ã¢â‚¬â€ portable `performance` (AA 0), `balanced` (AA 2),
+- `tools/apply-options-profile.ps1` — portable `performance` (AA 0), `balanced` (AA 2),
   `default` (AA 8), with backup/restore; no game files touched.
-- `engine/patches/T-015-benchmark-harness.patch` Ã¢â‚¬â€ `ZH_MAP`, deferred `ZH_STRESS`,
+- `engine/patches/T-015-benchmark-harness.patch` — `ZH_MAP`, deferred `ZH_STRESS`,
   `ZH_PERF_SPLIT` (client/draw/logic).
-- `docs/experiments/EXP-001-msaa-entity-heavy.md` Ã¢â‚¬â€ full method/results.
-- ISSUE-0006 Ã¢â€ â€™ Workaround; ISSUE-0009 Ã¢â€ â€™ Fixed; board/state/continuity updated.
+- `docs/experiments/EXP-001-msaa-entity-heavy.md` — full method/results.
+- ISSUE-0006 → Workaround; ISSUE-0009 → Fixed; board/state/continuity updated.
 
 
-## 2026-11-15 Ã¢â‚¬â€ Source-level distance cull
+## 2026-11-15 — Source-level distance cull
 
 **Tasks:** T-026
 
@@ -315,7 +315,7 @@ draw 27.26 -> 18.1 ms. Units beyond 400 world units are hidden, so this remains 
   updated.
 
 
-## 2026-11-15 Ã¢â‚¬â€ Visibility-preserving LOD attempt
+## 2026-11-15 — Visibility-preserving LOD attempt
 
 - Implemented distance LOD via `HLodClass::Set_LOD_Level` (`ZH_LOD`, near/far thresholds).
 - Measured at 1,000 units, AA 0: draw median **28.8 ms** vs **27.3 ms** baseline; frame median
@@ -324,10 +324,10 @@ draw 27.26 -> 18.1 ms. Units beyond 400 world units are hidden, so this remains 
   remains open (T-021/T-027).
 - Rebuilt cull-only engine and staged it:
   `5CF4EA0717FE38A11A1CB1007C6DA930D3BC75EA468CFC59E601CFFBAB1160F0`.
-- Opt-in cull remains the only measured source-level draw gain (draw 27.3 Ã¢â€ â€™ 18.1 ms at 400).
+- Opt-in cull remains the only measured source-level draw gain (draw 27.3 → 18.1 ms at 400).
 
 
-## 2026-11-15 Ã¢â‚¬â€ Visibility-preserving Low-detail profile and portable runner
+## 2026-11-15 — Visibility-preserving Low-detail profile and portable runner
 
 **Tasks:** T-028, T-029, T-025
 
@@ -365,7 +365,7 @@ Real late-game validation is blocked on a compatible replay: ISSUE-0010; T-025 B
 0 files modified; engine-test hash `5CF4EA07...60F0`.
 
 
-## 2026-11-15 Ã¢â‚¬â€ Architecture headroom and shadow-volume cost
+## 2026-11-15 — Architecture headroom and shadow-volume cost
 
 **Tasks:** T-030, T-031
 
@@ -398,7 +398,7 @@ priority than shadow work. A 400-unit shadow distance keeps all units visible an
 0 files modified; engine-test hash `C6353171...187E`.
 
 
-## 2026-11-15 Ã¢â‚¬â€ External SAGE/RTS performance cross-check
+## 2026-11-15 — External SAGE/RTS performance cross-check
 
 **Tasks:** T-020, T-021, T-032, T-033
 
@@ -427,7 +427,7 @@ caveats are in `docs/research/2026-11-15-external-performance-research.md`.
 
 
 
-## 2026-11-15 â€” Screen-size shadow LOD and optional d3d8to9 A/B
+## 2026-11-15 — Screen-size shadow LOD and optional d3d8to9 A/B
 
 **Tasks:** T-032, T-033
 
@@ -446,7 +446,7 @@ vs High no cull 37.94 ms / draw 30.98. 120 px matches the 400-unit world cull wh
 near/large shadows; 160 px reaches 27.34 ms but removes most shadows. Recorded in EXP-005.
 
 **d3d8to9 wrapper (T-033).** Downloaded `d3d8to9` v1.16.0 (`d3d8.dll`, SHA-256
-`122928CFâ€¦F8AB8`) into `game/engine-test` only, ran a 3+3 Low-detail A/B:
+`122928CF…F8AB8`) into `game/engine-test` only, ran a 3+3 Low-detail A/B:
 
 ```
 native:  26.58 / 25.93 / 26.45 ms; draw 19.24 / 19.19 / 19.44
@@ -459,13 +459,13 @@ only. The wrapper was removed; native system D3D8 remains the default. Recorded 
 
 **Changes.** Patch `T-030-shadow-culling.patch` now contains distance + screen-size culls;
 launcher gains `-ShadowSize`; docs EXP-005/EXP-006 and manifests; engine hash
-`EB4EC006â€¦C3FBF`. Board: T-032/T-033 Done, T-034 shadow-map prototype added.
+`EB4EC006…C3FBF`. Board: T-032/T-033 Done, T-034 shadow-map prototype added.
 
 **Verification.** `python tools/check_docs.py` OK; baseline manifest verified; source install
 0 files modified; engine-test has no local `d3d8.dll`; options AA 0 + Low.
 
 
-## 2026-11-15 â€” Clean-environment correction for architecture benchmarks
+## 2026-11-15 — Clean-environment correction for architecture benchmarks
 
 BlueStacks (`HD-Player`) was running an Android game in the background during the first
 EXP-004/005/006 measurements. It inflated every absolute frame time. The relative conclusions
@@ -486,10 +486,10 @@ EXP-004/005/006 now label the old numbers as contaminated; `artifacts/2026-11-15
 holds the clean summary.
 
 **Verification.** Options restored to AA 0 + Low; `game/engine-test/d3d8.dll` removed; engine
-`EB4EC006â€¦C3FBF`; baseline and source-install checks unchanged.
+`EB4EC006…C3FBF`; baseline and source-install checks unchanged.
 
 
-## 2026-11-15 â€” Projected/decal shadow prototype rejected
+## 2026-11-15 — Projected/decal shadow prototype rejected
 
 **Task:** T-034
 
@@ -1295,7 +1295,7 @@ Verification: `python tools/check_docs.py` exited 0 (75 Markdown files, 66 tasks
 in Options.ini (so every default applies), performance profile, uncapped.
 
 - Stock 1,000 tanks, 3 runs: 6.82 / 7.43 / 6.52 ms (146.6 / 134.6 / 153.4 FPS), mean **6.92 ms =
-  144.9 FPS**, p95 8.85 ms (113.0 FPS), p99 12.04 ms (83.1 FPS). Reference (EXP-013 Â§5.2):
+  144.9 FPS**, p95 8.85 ms (113.0 FPS), p99 12.04 ms (83.1 FPS). Reference (EXP-013 §5.2):
   6.62 ms / 151.1 FPS -> **-4.1% FPS, within run variation**.
 - ShockWave 1,000 x5 cycles, 2 runs: 4.06 / 4.06 ms (**246.4 / 246.2 FPS**), mean **4.06 ms =
   246.3 FPS**, p95 **49.59 ms (20.2 FPS)** vs reference 61.72 ms (16.2 FPS), p99 67.87 ms
@@ -1304,7 +1304,7 @@ in Options.ini (so every default applies), performance profile, uncapped.
 [INFERRED] The stock scene cannot benefit: its 1,000-tank grid is ~540x510 world units, so a
 400-unit draw distance culls almost nothing, and there is no debris for the partition skip. The
 ShockWave scene gains on the tail. Note the ShockWave runner still exports
-`ZH_COSMETIC_PARTITION=0`, so that feature was env-overridden off in these runs (EXP-016 Â§4);
+`ZH_COSMETIC_PARTITION=0`, so that feature was env-overridden off in these runs (EXP-016 §4);
 the tail gain comes from the broadphase default and draw distance.
 
 [VERIFIED] Found and fixed a regression introduced by an earlier regex edit: `tools/launch-game.ps1`
@@ -1329,7 +1329,7 @@ Sleepy-update bucketing was deliberately not implemented (microsecond scale, wak
 filed as T-069.
 
 [VERIFIED] Encoding defect found and fixed while editing the board: an earlier PowerShell
-`Set-Content` had written `docs/tasks/BOARD.md` in the system ANSI encoding, so `Â§`/`Ã—` were stored
+`Set-Content` had written `docs/tasks/BOARD.md` in the system ANSI encoding, so `§`/`×` were stored
 as raw Latin-1 bytes and the file was no longer valid UTF-8. Re-encoded the file from cp1252 to
 UTF-8; a scan of all docs now reports no invalid UTF-8. All future doc edits must use the edit tool
 or explicit UTF-8 writes.
@@ -1550,12 +1550,12 @@ flags/params in `benchmark-shockwave-attrib.ps1`, `benchmark-entity-heavy.ps1`, 
 the queue struct/statics/`zhDeferInit`, both call sites in `ObjectCreationList.cpp`, the flush call in
 `GameLogic::update`, and `<deque>`.
 
-[VERIFIED] `ZH_COSMETIC_PARTITION` and `ZH_DEBRIS_DEFER` are absent from engine `059B5E7Aâ€¦DC0F`
-(byte search) and from all sources/tools; the binary shrank 6,770,176 â†’ 6,768,640 bytes. Both copies
+[VERIFIED] `ZH_COSMETIC_PARTITION` and `ZH_DEBRIS_DEFER` are absent from engine `059B5E7A…DC0F`
+(byte search) and from all sources/tools; the binary shrank 6,770,176 → 6,768,640 bytes. Both copies
 staged; smoke run (300 units, performance profile) 6.89 ms = **145.2 FPS**; patch regenerated and
 `git apply -R --check` = 0.
 
-[VERIFIED] T-077 in-game help: `OptionsMenuInit` now sets tooltips (they are code-driven â€” the `.wnd`
+[VERIFIED] T-077 in-game help: `OptionsMenuInit` now sets tooltips (they are code-driven — the `.wnd`
 TOOLTIP field is only "Need tooltip translation" in `GameWindowManagerScript.cpp`) on
 `ComboBoxAntiAliasing`, `ComboBoxDetail`, `CheckUnlockFPS`, `ParticleCapSlider`, `CheckHeatEffects`
 and `CheckCloudShadows`, explaining what each costs. Verified the UTF-16 strings are present in the

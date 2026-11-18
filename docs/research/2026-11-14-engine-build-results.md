@@ -1,4 +1,4 @@
-﻿# Engine build and fullscreen results â€” 2026-11-14
+﻿# Engine build and fullscreen results — 2026-11-14
 
 - **Date:** 2026-11-14
 - **Author/agent:** lead
@@ -8,12 +8,12 @@
 ## Summary
 
 - The GPLv3 source builds successfully with VS2022 Community (MSVC 14.43 + ATL), Win32,
-  `z_generals` â†’ `generalszh.exe`.
+  `z_generals` → `generalszh.exe`.
 - The rebuilt engine launches against the real game data with the **system** `d3d8.dll`.
-- GenToolâ€™s proxy causes an immediate `0xC0000005` with the rebuilt exe; staging now disables
+- GenTool’s proxy causes an immediate `0xC0000005` with the rebuilt exe; staging now disables
   it by default (ISSUE-0008).
 - A DPI-awareness patch makes the process per-monitor aware: borderless and exclusive both
-  report a **1920Ã—1080 client area** (previously 1536Ã—864 at 125% scaling).
+  report a **1920×1080 client area** (previously 1536×864 at 125% scaling).
 - Exclusive fullscreen works and survived two Alt+Tab cycles.
 - A frame logger patch writes `frame,frame_ms` when `ZH_PERF_LOG` is set.
 - The available replay stays at the 30 FPS cap; the 1v8 replay hangs black.
@@ -43,12 +43,12 @@ DPI-aware query (Python process with `SetProcessDpiAwarenessContext`):
 
 | Mode | Process awareness | Client | Window |
 |---|---|---|---|
-| borderless (`-win`) | 2 (per-monitor) | **1920Ã—1080** | `-9,-38 1938Ã—1127` |
-| exclusive (`-fullscreen`) | 2 (per-monitor) | **1920Ã—1080** | `0,0 1920Ã—1080` |
+| borderless (`-win`) | 2 (per-monitor) | **1920×1080** | `-9,-38 1938×1127` |
+| exclusive (`-fullscreen`) | 2 (per-monitor) | **1920×1080** | `0,0 1920×1080` |
 
 Alt+Tab twice in exclusive mode: process remained alive, same title/handle.
 
-Without the DPI patch, the process reported 1536Ã—864 client at 125% scaling; the patch is
+Without the DPI patch, the process reported 1536×864 client at 125% scaling; the patch is
 required for 1:1 output.
 
 ## Frame timing evidence
@@ -57,7 +57,7 @@ required for 1:1 output.
 
 ```
 n=5280  median=33.35 ms  p95=34.31 ms  p99=36.25 ms  max=245.26 ms
-30-second windows: median 33.33â€“33.39 ms throughout
+30-second windows: median 33.33–33.39 ms throughout
 ```
 
 That is the 30 FPS cap; the replay does not create an entity-heavy load.
@@ -72,14 +72,14 @@ That is the 30 FPS cap; the replay does not create an entity-heavy load.
 | `art review new units.map` | Loads to an empty/black area; no heavy scene |
 | `ZH_MAP` auto-start + `ZH_STRESS` | Finds a valid team/template, but returns to the menu; no playable heavy scene |
 | Debug UI + deferred `ZH_STRESS` | Map list stayed open on the retry; no playable match; reverted |
-| Saves in `Documents\...\Save` | 186â€“765 bytes; not late-game |
+| Saves in `Documents\...\Save` | 186–765 bytes; not late-game |
 
 ## Changes
 
-- `engine/patches/T-023-dpi-awareness.patch` â€” per-monitor DPI awareness at WinMain.
-- `engine/patches/T-015-frame-logger.patch` â€” optional CSV frame logger.
-- `tools/build-engine.ps1` â€” reproducible configure/build; uses the Community instance/ATL.
-- `tools/stage-engine.ps1` â€” isolated `game/engine-test` copy, retail-exe backup, GenTool
+- `engine/patches/T-023-dpi-awareness.patch` — per-monitor DPI awareness at WinMain.
+- `engine/patches/T-015-frame-logger.patch` — optional CSV frame logger.
+- `tools/build-engine.ps1` — reproducible configure/build; uses the Community instance/ATL.
+- `tools/stage-engine.ps1` — isolated `game/engine-test` copy, retail-exe backup, GenTool
   disabled by default, hash record.
 - `docs/issues/ISSUE-0008`, `ISSUE-0009`.
 
@@ -95,11 +95,11 @@ That is the 30 FPS cap; the replay does not create an entity-heavy load.
 
 ## Artifacts
 
-- `artifacts/2026-11-14-engine-build-test/dpi-query.json` â€” DPI/mode measurements.
-- `artifacts/2026-11-14-engine-build-test/perf-long-replay.csv` â€” frame times.
-- `artifacts/2026-11-14-engine-build-test/alt-tab-test.json` â€” Alt+Tab result.
-- `artifacts/2026-11-14-engine-build-test/1v8-retry.png` â€” black replay evidence.
-- `artifacts/2026-11-14-engine-build-test/main-menu.png`, `units-map.png` â€” UI evidence.
+- `artifacts/2026-11-14-engine-build-test/dpi-query.json` — DPI/mode measurements.
+- `artifacts/2026-11-14-engine-build-test/perf-long-replay.csv` — frame times.
+- `artifacts/2026-11-14-engine-build-test/alt-tab-test.json` — Alt+Tab result.
+- `artifacts/2026-11-14-engine-build-test/1v8-retry.png` — black replay evidence.
+- `artifacts/2026-11-14-engine-build-test/main-menu.png`, `units-map.png` — UI evidence.
 
 
 

@@ -8,12 +8,12 @@
 ## 1. Make the GPU explicit
 
 The laptop has Intel UHD + GTX 1650 Ti. A high-performance preference was applied for the
-real install on 2026-11-14 (see ISSUE-0007). Confirm at runtime with Task Manager â†’ Performance
-â†’ GPU 1 engine, or the NVIDIA overlay, while the game is running.
+real install on 2026-11-14 (see ISSUE-0007). Confirm at runtime with Task Manager → Performance
+→ GPU 1 engine, or the NVIDIA overlay, while the game is running.
 
-Also set in the NVIDIA Control Panel (if needed): *Manage 3D settings â†’ Program Settings â†’
-Command & Conquer Generals Zero Hour â†’ High-performance NVIDIA processor*, and
-*Power management mode â†’ Prefer maximum performance*.
+Also set in the NVIDIA Control Panel (if needed): *Manage 3D settings → Program Settings →
+Command & Conquer Generals Zero Hour → High-performance NVIDIA processor*, and
+*Power management mode → Prefer maximum performance*.
 
 ## 2. Fix the scenario before changing settings
 
@@ -48,9 +48,9 @@ thresholds.
 
 | Test | Change | Hypothesis |
 |---|---|---|
-| A | `AntiAliasing = 14` â†’ `0` | 14 is an unusual/high value; may cost GPU time |
-| B | `MaxParticleCount = 5000` â†’ `2000` | effects are a known late-game cost |
-| C | `UseShadowVolumes`/`UseShadowDecals` â†’ `no` | shadow rendering scales with entities |
+| A | `AntiAliasing = 14` → `0` | 14 is an unusual/high value; may cost GPU time |
+| B | `MaxParticleCount = 5000` → `2000` | effects are a known late-game cost |
+| C | `UseShadowVolumes`/`UseShadowDecals` → `no` | shadow rendering scales with entities |
 | D | `StaticGameLOD` High -> Low | shadow/lightmap/particle cost; measured 35.05 -> 33.36 ms median, draw 27.26 -> 18.45 ms (EXP-003) |
 | E | GPU preference off/on | confirms ISSUE-0007 |
 
