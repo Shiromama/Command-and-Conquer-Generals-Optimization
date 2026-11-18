@@ -56,10 +56,10 @@ Inspect is a read-only preview. Install replaces Generals.exe, backs up/removes 
 
 Backups and the transaction journal live in `.zhpatch-alpha` in the selected game folder. Keep this directory and the matching alpha package. After an interruption, close the game and select Install or Uninstall again to recover and complete that action. Recovery preserves temporary files in the state directory for inspection. Uninstall and recovery refuse changed managed files or damaged backups. Move your changed file to a safe location and put the expected installed or original file back before retrying. Unrelated user files and changed unmanaged assets are preserved. Uninstall retains the journal and backups. Reinstall is supported when the original file set still matches.
 
-Every operation refuses linked paths/hardlinks and running Generals/Zero Hour or known ShockWave launchers. No automatic elevation, downloads or telemetry. Checksums detect accidental package damage; this local alpha is unsigned, so checksums do not establish publisher authenticity.
+Every operation refuses linked paths/hardlinks and running Generals/Zero Hour or known ShockWave launchers. No automatic elevation, downloads or telemetry. This alpha is unsigned. Use the published SHA-256 to verify the download.
 
 ## Source and build
 
-The accompanying corresponding-source archive contains the patcher, offline Rust dependency sources, prepared engine source, source provenance and build scripts. Rust 1.82, Visual Studio 2022 Community with C++/ATL, CMake and Windows SDK are required to rebuild. See SOURCE-BUILD.md in that archive. Engine import/runtime dependencies already owned with the game are not redistributed. Public redistribution is outside this local alpha release's validation scope. See NOTICES.txt and LICENSE files.
+The accompanying corresponding-source archive contains the patcher, offline Rust dependency sources, prepared engine source, source provenance and build scripts. Rust 1.82, Visual Studio 2022 Community with C++/ATL, CMake and Windows SDK are required to rebuild. See SOURCE-BUILD.md in that archive and the included license and notice files.
 
 The prepared engine disables diagnostic environment reads and excludes the synthetic pathfinding harness. Stable Heap remains the singleplayer default; network/replay force List internally, without compatibility certification. No shadow-map renderer is included. Shipping patcher builds exclude debug fault injection.
