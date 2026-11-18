@@ -1867,3 +1867,11 @@ export replaces personal path references and is checked for user-profile paths,
 email addresses, common credential patterns, Git metadata and bundled game
 binary/archive types. See the [source snapshot manifest](../artifacts/2026-11-18-github-source/manifest.md).
 No GitHub repository or release was created.
+
+## 2026-11-18 - T-102 publish the Windows singleplayer pre-release
+
+[VERIFIED] Candidate 17 passed install, verify, and uninstall on fresh disposable
+copies of stock Zero Hour and ShockWave. The file hashes after uninstall matched
+all 1,914 original stock files and all 288 original ShockWave files. The uploaded
+ZIP's SHA-256 and byte count matched the verified local package.
+[Published pre-release](https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases/tag/v0.1.0-alpha.1)
