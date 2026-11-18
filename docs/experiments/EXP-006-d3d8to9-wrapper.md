@@ -25,7 +25,7 @@ tested only in `game/engine-test`, never in the real install or pristine baselin
 | Scenario | `northamerica`, 1,000 tanks, 1920x1080, 35 s, steady after 300, uncapped (`ZH_FPS=1000`) |
 | Repetitions | 3 native + 3 wrapper |
 
-## Results â€” Low detail (initial, contaminated)
+## Results — Low detail (initial, contaminated)
 
 > BlueStacks was running during part of this A/B. The clean re-run matrix is below; use the
 > clean numbers for conclusions.
@@ -37,12 +37,12 @@ tested only in `game/engine-test`, never in the real install or pristine baselin
 | 3 | 26.45 | 19.44 | 25.00 | 18.47 |
 | **Median** | **26.45** | **19.24** | **25.00** | **17.99** |
 
-- Median frame time: **26.45 â†’ 25.00 ms (5.5% lower)**
-- Draw submission: **19.24 â†’ 17.99 ms (6.5% lower)**
-- p95: 31.66 â†’ 31.21 ms (1.4% lower)
-- No crash or visual difference in the three wrapper runs; screenshot at 39â€“40 FPS.
+- Median frame time: **26.45 → 25.00 ms (5.5% lower)**
+- Draw submission: **19.24 → 17.99 ms (6.5% lower)**
+- p95: 31.66 → 31.21 ms (1.4% lower)
+- No crash or visual difference in the three wrapper runs; screenshot at 39–40 FPS.
 
-## Results â€” High detail + 120 px shadow LOD (indicative only)
+## Results — High detail + 120 px shadow LOD (indicative only)
 
 Native (EXP-005): 30.19 / 29.22 / 29.79 ms; draw 23.00 / 22.33 / 22.85.
 Wrapper: 22.62 / 25.74 / 26.16 ms; draw 16.36 / 19.20 / 20.84; p95 30.82 / 39.43 / 40.69.
@@ -61,8 +61,8 @@ They are recorded as indicative, not as a validated 20%+ gain.
 | Native High + 120 px | 20.30 | 15.20 | 23.57 | 49.3 |
 | Wrapper High + 120 px | **18.60** | **13.50** | **21.56** | **53.8** |
 
-- Low: **17.47 â†’ 16.47 ms (5.7% lower)**, draw **12.78 â†’ 11.69 ms (8.5% lower)**
-- High + 120 px: **20.30 â†’ 18.60 ms (8.4% lower)**, draw **15.20 â†’ 13.50 ms (11.2% lower)**
+- Low: **17.47 → 16.47 ms (5.7% lower)**, draw **12.78 → 11.69 ms (8.5% lower)**
+- High + 120 px: **20.30 → 18.60 ms (8.4% lower)**, draw **15.20 → 13.50 ms (11.2% lower)**
 - p95 also improves in both cases; no crash in six clean wrapper runs.
 
 ## Interpretation
@@ -71,7 +71,7 @@ They are recorded as indicative, not as a validated 20%+ gain.
   shadow LOD, with no crash in six clean runs.
 - It does not address the shadow-volume cost by itself; the High gain is still driver-submission
   overhead, on top of the shadow LOD.
-- p95 improves too (23.06 â†’ 19.08 Low; 23.57 â†’ 21.56 High), unlike the contaminated runs.
+- p95 improves too (23.06 → 19.08 Low; 23.57 → 21.56 High), unlike the contaminated runs.
 - It is a third-party binary. It may conflict with GenTool's `d3d8.dll` proxy and has community
   reports of VSync/crash issues. It is **not** applied to `game/work`, the baseline, or the real
   installation.

@@ -1,6 +1,6 @@
 ﻿# Game copies and baseline identity
 
-> **Status:** verified Â· **Last verified:** 2026-11-14 Â· **ADR:** [`decisions/ADR-0006-baseline-work-copies.md`](decisions/ADR-0006-baseline-work-copies.md)
+> **Status:** verified · **Last verified:** 2026-11-14 · **ADR:** [`decisions/ADR-0006-baseline-work-copies.md`](decisions/ADR-0006-baseline-work-copies.md)
 > **Scripts:** [`../tools/prepare-game-copies.ps1`](../tools/prepare-game-copies.ps1), [`../tools/launch-game.ps1`](../tools/launch-game.ps1)
 
 ## 1. Labels
@@ -9,7 +9,7 @@
 |---|---|---|---|
 | `v104-gentool76-2026-11-14` | `game/baseline-pristine/` | Exact copy of the complete installation; never edited | **No** (all 1,914 files read-only) |
 | `v104-gentool76-2026-11-14` | `game/work/` | Mutable copy where fixes are applied and tested | Yes |
-| â€” | `%USERPROFILE%\Documents\Command and Conquer Generals Zero Hour Data` | Live user settings/saves; outside the copies | Yes (back up before tests) |
+| — | `%USERPROFILE%\Documents\Command and Conquer Generals Zero Hour Data` | Live user settings/saves; outside the copies | Yes (back up before tests) |
 
 Source installation (read-only, untouched):
 `C:\Program Files (x86)\R.G. Mechanics\Command and Conquer - Generals\Command and Conquer Generals Zero Hour`
@@ -71,7 +71,7 @@ Observed after 20 s:
 | Documents `options.ini` / `Skirmish.ini` / `ReleaseCrashInfo.txt` | unchanged hashes and timestamps |
 
 The game process was terminated after measurement. This matches the earlier identical-copy
-test and confirms the FULL preset produces a 1920Ã—1080 client area with borders off-screen.
+test and confirms the FULL preset produces a 1920×1080 client area with borders off-screen.
 See [`issues/ISSUE-0005-fullscreen-not-working.md`](issues/ISSUE-0005-fullscreen-not-working.md).
 
 ## 5. Engine test copy
@@ -83,7 +83,7 @@ engine. It is not the baseline and not the retail work copy.
 |---|---|
 | Built exe | `Generals.exe` (source build, DPI + frame logger + benchmark harness + distance/shadow culls) |
 | Built SHA-256 | `7C3CE0AD24D6E8439E7994C923C838DB1EFF92DCE9944F8546B7D1D2A29ABE21` |
-| Retail backup | `Generals.retail.exe` â€” `F37A4929F8D697104E99C2BCF46F8D833122C943AFCD87FD077DF641D344495B` |
+| Retail backup | `Generals.retail.exe` — `F37A4929F8D697104E99C2BCF46F8D833122C943AFCD87FD077DF641D344495B` |
 | GenTool proxy | disabled (`d3d8.dll.gentool-disabled`); system `SysWOW64\d3d8.dll` is used |
 | Record | `game/engine-test/engine.json` |
 
