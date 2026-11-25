@@ -4579,6 +4579,19 @@ and BCrypt API parameter names. The two workspace paths, the retail repack vendo
 `%USERPROFILE%` tool paths are redacted in the public tree; the local evidence retains the originals.
 The public commit SHA is recorded in `docs/state.json`.
 
+## 2026-11-26 - T-129: public snapshot pushed
+
+[VERIFIED] Public `main` advanced from `9c07bbc` to **`a2c92c8`** with 114 files changed. The
+snapshot commit author/committer is `Shiromama <156502474+Shiromama@users.noreply.github.com>`; the
+local private history was not pushed. `git ls-remote` reports `a2c92c8` for `refs/heads/main`, the
+raw `README.md` returns the new Last Stand section, and `docs/assets/last-stand-heavy-window.svg`
+returns HTTP 200.
+
+[VERIFIED] The published tree was re-scanned after redaction: 402 tracked files, no binaries, no
+private keys, no API tokens, no email addresses and no real IP addresses. `python tools/check_docs.py`
+passes in the publication tree; the only warnings are artifact links whose manifests are intentionally
+local (the `artifacts/` folder is not committed).
+
 
 
 

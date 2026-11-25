@@ -34,7 +34,8 @@
       "scope": "Tracked source and documentation snapshot on public main; public history preserved; workspace paths and the retail vendor path are redacted.",
       "readme": "README.md",
       "findings_note": "docs/research/2026-11-25-last-stand-congestion-price.md",
-      "chart": "docs/assets/last-stand-heavy-window.svg"
+      "chart": "docs/assets/last-stand-heavy-window.svg",
+      "public_commit": "a2c92c8473189f8c787ca8c3e35e01d271834e8e"
     }
   },
   "canonical_entrypoint": "AGENTS.md",
