@@ -4591,6 +4591,11 @@ private keys, no API tokens, no email addresses and no real IP addresses. `pytho
 passes in the publication tree; the only warnings are artifact links whose manifests are intentionally
 local (the `artifacts/` folder is not committed).
 
+[VERIFIED] The published `v0.1.0-alpha.1` ZIP was re-downloaded and matches the recorded SHA-256
+`11EF4444...D354D` (21,220,347 bytes). A recursive scan of 5,953 nested source members found no local
+user-profile paths, no maintainer name or email, no repack vendor name, no credential or private-key
+pattern, and no game assets.
+
 
 
 
