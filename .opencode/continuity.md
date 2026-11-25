@@ -15,7 +15,9 @@ T-129 published a tracked source/docs snapshot on public `main` and refreshed th
 Last Stand table, the heavy-window chart, the cost split, and the measured-and-rejected list. The
 snapshot commit is `c4263ec`; small record and clarification commits follow it on `main`. The public
 history was rewritten on 2026-11-26 to use the GitHub noreply identity; all reachable commits now use
-noreply. Workspace paths, `%USERPROFILE%` tool paths, and the
+noreply. Local `master` still contains the old private history, so never push it; public updates use
+scrubbed snapshots and the local `user.email` is now the noreply address. Workspace paths,
+`%USERPROFILE%` tool paths, and the
 retail vendor name are redacted in the public tree; the local evidence keeps the originals. A
 tracked-file scan found no binaries, credentials, keys, tokens, email addresses, or real IPs.
 
