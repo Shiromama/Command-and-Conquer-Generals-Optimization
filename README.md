@@ -106,7 +106,7 @@ same work is not repeated.
 | Group route cache TTL 24 | 42.9 ms vs 36.8 | 21-frame-old routes diverge; the 292 misses are necessary work |
 | Search cap 10,000 | 45.0 ms; 2,331 commands | Capped searches are re-issued; retry storm |
 | Admissible heuristic | 56.6 ms; +62% expansions | The retail overestimate is load-bearing |
-| Render-thread overlap | 37.2 ms | Draw is CPU-bound and contends with logic |
+| Render-thread overlap | 37.2 ms vs 39.2 control | Still above the 36.8 fast-regime baseline; draw is CPU-bound and contends with logic |
 | Shadow-map renderer | 14% slower median | The stencil path is faster |
 | Triple buffering | +0.08 ms | No measurable gain |
 
