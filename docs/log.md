@@ -4609,3 +4609,6 @@ hash is linked from this repository.
 
 [LIMITATION] GitHub still serves the old commit objects by direct SHA after a force-push. A hard purge
 (removing all dangling objects) requires repository deletion/recreation or a GitHub Support request.
+## 2026-11-26 - T-129: define CRC in the README
+
+[VERIFIED] Added a plain-language CRC definition before the Last Stand table: CRC is the engine per-frame state fingerprint; matching CRC and command streams mean an exact simulation match, and a different CRC means the battle changed. python tools/check_docs.py passes.

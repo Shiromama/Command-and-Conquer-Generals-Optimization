@@ -43,6 +43,10 @@ native Direct3D 8 / Intel path in the matched A/B pair.
 
 ![Last Stand heavy-window frame time by configuration](docs/assets/last-stand-heavy-window.svg)
 
+**CRC** (cyclic redundancy check) is a short fingerprint the engine computes over the game state each
+frame. Matching CRCs and command streams mean the run reproduced the reference simulation exactly; a
+different CRC means the configuration changed the battle.
+
 | Configuration | Mean | FPS | Logic | Path | Draw | Replay |
 |---|---:|---:|---:|---:|---:|---|
 | Native D3D8 (Intel iGPU), full visuals | 46.9 ms | 21.3 | 32.9 ms | — | 12.6 ms | reference CRC |
