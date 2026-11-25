@@ -13,8 +13,8 @@ default (`tools/play-t120.ps1 -AllyCost 33`); it resolves the replay at about fr
 
 T-129 published a tracked source/docs snapshot on public `main` and refreshed the README with the
 Last Stand table, the heavy-window chart, the cost split, and the measured-and-rejected list. The
-snapshot commit is `a2c92c8`; public `main` is `5fefe6e` after the record commit. The public history
-is preserved; only new commits were added. Workspace paths, `%USERPROFILE%` tool paths, and the
+snapshot commit is `a2c92c8`; small record and clarification commits follow it on `main`. The public
+history is preserved; only new commits were added. Workspace paths, `%USERPROFILE%` tool paths, and the
 retail vendor name are redacted in the public tree; the local evidence keeps the originals. A
 tracked-file scan found no binaries, credentials, keys, tokens, email addresses, or real IPs.
 
