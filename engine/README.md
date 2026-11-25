@@ -76,17 +76,18 @@ per-task history.
 
 ### Alpha feature patches (T-080/T-081)
 
-The isolated alpha source applies two additional tracked patches on top of the copied
-development tree:
+The isolated alpha source applies one additional tracked patch on top of the copied development tree:
 
 | Patch | Purpose |
 |---|---|
-| [`patches/guard-range.patch`](patches/guard-range.patch) | Singleplayer human guard floor `max(adjusted vision, eligible automatic weapon range)` and UI radius refresh; AI/network/replay/enter-guard stay legacy. |
-| [`patches/model-fire-fx-recoil.patch`](patches/model-fire-fx-recoil.patch) | Bound the weapon barrel index and rebuild recoil storage before indexing; fixes the null recoil-vector crash during weapon fire. |
+| [`patches/T-130-ally-cost-33.patch`](patches/T-130-ally-cost-33.patch) | Shipped alpha default: 33% ally-congestion price. The development tree keeps the retail 100% default so benchmark controls stay explicit. |
 
-`tools/prepare-alpha-engine.py` applies both after copying the patched development tree; the
-shipping alpha engine and the guard fixture builds use the same source hashes. These patches
-are not part of `current-engine.patch` and are not applied to the active vendor tree.
+The guard-range, weapon-recoil, and skirmish-speed fixes are already in `current-engine.patch`; their
+older per-task patch files are historical. `tools/prepare-alpha-engine.py` applies the 33% patch after
+copying the patched development tree and disables the remaining diagnostic environment reads. The
+shipping alpha engine and the guard fixture builds use the same source hashes. The 33% patch is not
+part of `current-engine.patch` and is not applied to the active vendor tree. The 33% default is a
+gameplay trade: the Last Stand benchmark replay resolves around frame 8,400, not 17,402.
 
 ## Verified behavior (2026-11-14)
 

@@ -8,8 +8,17 @@ Phase: P2
 T-112 is closed. The 481-frame Last Stand heavy window (1,000 units, 1920x1080) reaches **30.06 ms /
 33.3 FPS** with the opt-in **66% ally-congestion price** and **29.01 ms / 34.5 FPS** with the three
 visual trades. The 66% price is deterministic (`695F3403`, 523 commands) but gameplay-changing; the
-replay still completes at 17,402. The **33% price is the user's feel choice** and the source playtest
-default (`tools/play-t120.ps1 -AllyCost 33`); it resolves the replay at about frame 8,400.
+replay still completes at 17,402. The **33% price is the user's feel choice, the source playtest
+default, and the shipped alpha.2 default**; it resolves the replay at about frame 8,400. The 66%
+benchmark and visual trades remain source-only.
+
+T-130 shipped the Windows singleplayer alpha **`0.1.0-alpha.2`**: the prepared engine bakes the 33%
+fallback via `T-130-ally-cost-33.patch`, keeps the development default at 100%, and strips the
+diagnostic `ZH_*` reads. Engine `E728D945...1721`; patcher `D07A61CC...6373`; package ZIP
+`7B4E442B...D5BD` (21,551,723 bytes); corresponding source `A9DFE522...80CE`. Production patcher
+tests passed 43/43 with 6 debug-only skips; stock and ShockWave install/restore restored 1,914/288
+files; a native 1920x1080 startup smoke opened a responsive window. The package ships the 33%
+gameplay trade, not the 66% 30.06 ms benchmark or the 29.01 ms visual-trade configuration.
 
 T-129 published a tracked source/docs snapshot on public `main` and refreshed the README with the
 Last Stand table, the heavy-window chart, the cost split, and the measured-and-rejected list. The
@@ -50,6 +59,10 @@ were all sized and rejected; the remaining work is integration/playback, not ano
 
 ## Builds and copies
 
+- Alpha.2 release build: source `build/t130-alpha-source`, engine
+  `build/t130-alpha-release/GeneralsMD/Release/generalszh.exe` (`E728D945...1721`); patcher
+  `build/t130-patcher/release/zh-patcher.exe` (`D07A61CC...6373`). Candidate 18 package:
+  `artifacts/2026-11-26-patcher-alpha-2/candidate-18/`.
 - Staged playtest **`9660EB14...`** (`tools/play-t120.ps1`, `-AllyCost 100|66|33|0`, `-Performance`
   enables the three visual trades) in `game/last-stand-replay` with `d3d8to9` v1.16.0
   (`122928CF...`). `-Restore` puts the retail exe back.
@@ -71,9 +84,9 @@ were all sized and rejected; the remaining work is integration/playback, not ano
 
 1. Integration/validation: T-116 group-start failures, T-117 deploy guard/hold, T-128 live stuck
    groups. T-128 stays parked until a live `artifacts/live-formation-commands.csv` capture exists.
-2. Decide the packaging story for the opt-in profile: 33% is the playtest default by feel, 66% is
-   the benchmark value, and the published alpha predates both. Do not present the 66% result as
-   behaviour-preserving.
+2. Publish and verify the alpha.2 release; then copy the final engine to `build/engines/` and prune
+   the generated `t130-alpha-release` build tree per ADR-0025. Do not present the 66% benchmark as
+   behaviour-preserving or as the package default.
 3. Keep the public snapshot current after material doc changes; re-run `python tools/check_docs.py`
    and `python tools/check-workspace-size.py`.
 4. T-025: re-confirm profiles on the checksum-checked diagnostic replay window.

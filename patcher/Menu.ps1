@@ -34,7 +34,7 @@ if (-not (Test-Package $packageDir)) {
 }
 $exe=Join-Path $packageDir 'zh-patcher.exe'
 
-Write-Host 'Zero Hour Patcher 0.1.0-alpha.1'
+Write-Host 'Zero Hour Patcher 0.1.0-alpha.2'
 $dialog=New-Object Windows.Forms.FolderBrowserDialog
 $dialog.Description='Choose a writable Zero Hour copy containing Generals.exe.'
 $dialog.ShowNewFolderButton=$false

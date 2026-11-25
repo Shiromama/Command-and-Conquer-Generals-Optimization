@@ -1,0 +1,17 @@
+diff --git a/Core/GameEngine/Source/GameLogic/AI/AIPathfind.cpp b/Core/GameEngine/Source/GameLogic/AI/AIPathfind.cpp
+index 8f01ce0..1cd1c23 100644
+--- a/Core/GameEngine/Source/GameLogic/AI/AIPathfind.cpp
++++ b/Core/GameEngine/Source/GameLogic/AI/AIPathfind.cpp
+@@ -3422,10 +3422,10 @@ Int Pathfinder::examineNeighboringCells(PathfindCell *parentCell, PathfindCell *
+ 		// T-112: static-only routing. Modern large-unit RTS price terrain, not traffic; the crowd is
+ 		// handled by local avoidance. Skipping the ally cost terms (below) is the first slice.
+ 		static const bool staticRouting = zh::parseBoolean(std::getenv("ZH_STATIC_ROUTING"), false);
+-		// T-112: scale the ally congestion cost (percent, default 100 = retail 3x diagonal).
++		// T-130: shipped alpha default 33% (retail 3x diagonal is 100).
+ 		static const int zhAllyCostPct = [] {
+ 			const char *v = std::getenv("ZH_ALLY_COST_PCT");
+-			const int n = v ? std::atoi(v) : 100;
++			const int n = v ? std::atoi(v) : 33;
+ 			return n < 0 ? 0 : (n > 400 ? 400 : n);
+ 		}();
+ 		Bool canPathThroughUnits = false;

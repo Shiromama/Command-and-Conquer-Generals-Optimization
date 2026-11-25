@@ -1,9 +1,11 @@
-# Zero Hour Patcher 0.1.0-alpha.1
+# Zero Hour Patcher 0.1.0-alpha.2
 
 Singleplayer alpha for the cataloged Zero Hour and ShockWave snapshots and compatible Zero Hour copies with local mod data. A compatible copy must have a recognized `Generals.exe`, a recognized `game.dat` when present, `INIZH.big` and `W3DZH.big`, and either system Direct3D or the cataloged GenTool proxy. Other executable builds and graphics proxies need separate validation. Multiplayer, old saves and replays, and individual community mods still need testing.
 
 ## Changes in this build
 
+- **33% ally-congestion pathfinding profile (new default).** The engine charges one third of the retail ally-congestion price. Group routes are simpler and re-plan less, but the battle outcome changes: the Last Stand benchmark replay resolves around frame 8,400 instead of 17,402. This is a gameplay trade, not a behaviour-preserving optimization. The 66% benchmark profile and the visual-trade switches are not included; no environment variables are required.
+- Pathfinding work includes the collision-aware group route cache, the width-6 group kernel, and the per-search unit memo.
 - The skirmish **Game Speed** slider controls the simulation tick rate. The render cap still follows the FPS preference and render-FPS shortcuts.
 - Direct game launches use windowed presentation by default so Windows capture overlays can appear over the game. The patcher's Play command uses borderless windowed mode. Use `-fullscreen` only if you want exclusive fullscreen.
 - Built-in singleplayer guard-range fix: for human-owned stock units, the guard ring and target acquisition cover the usable automatic weapon range, including long-range variants. There is no toggle. AI, network and replay behavior stay on the legacy path.

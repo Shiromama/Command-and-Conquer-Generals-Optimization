@@ -13,8 +13,8 @@ verification results, and remaining work.
 
 ## Quick start
 
-**Download.** [Windows patcher ZIP](https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases/download/v0.1.0-alpha.1/zh-patcher-0.1.0-alpha.1.zip)
-· [Release notes and checksum](https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases/tag/v0.1.0-alpha.1).
+**Download.** [Windows patcher ZIP](https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases/download/v0.1.0-alpha.2/zh-patcher-0.1.0-alpha.2.zip)
+· [Release notes and checksum](https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases/tag/v0.1.0-alpha.2).
 To build from source, see the [engine build guide](engine/README.md).
 
 Once you have the patcher ZIP:
@@ -27,9 +27,10 @@ Once you have the patcher ZIP:
 4. To restore the original files, close the game, open `Patcher.cmd`, select the
    same copy, and choose **Uninstall**.
 
-> The published package is the verified installer track. It uses system Direct3D 8 and predates
-> the source-level pathfinding and GPU-path work described below; the source tree is newer than
-> the package.
+> The published package is the verified installer track. It ships the **33% ally-cost pathfinding
+> profile**. The 66% benchmark configuration and the three visual trades remain source/playtest
+> options; the 29.0 ms result below is not the package default. The package uses system Direct3D 8
+> and does not install `d3d8to9`.
 
 ## Benchmark highlights
 
@@ -66,6 +67,11 @@ between sessions, so small deltas are noise. The 29.0 ms run was 2.3% faster-cal
 36.8 ms baseline; at matched calibration the gain is about 19%.
 [Full result and limitations](docs/research/2026-11-25-last-stand-congestion-price.md) ·
 [Hardware](docs/environment.md#5-host-hardware-target-machine)
+
+The **downloadable alpha ships the 33% profile**, not the 66% benchmark row above. At 33% the
+benchmark replay resolves around frame 8,400, before the heavy window, so the package does not
+claim the 29.0 ms / 34.5 FPS result. The 33% value is the user-selected feel profile; the 66% value
+and the visual trades remain source/playtest configurations.
 
 ### What moved the needle
 
@@ -146,7 +152,8 @@ late-game replay validation is still open.
 - [VERIFIED] Engine work includes faster debris collision candidate filtering, a corrected guard
   range for human-owned stock units in singleplayer, and separate skirmish simulation speed and
   rendering FPS controls. The source tree also contains the group route cache, width-6 kernel,
-  per-search memo, and the opt-in congestion-price and visual-trade switches.
+  per-search memo, and the opt-in congestion-price and visual-trade switches. The `0.1.0-alpha.2`
+  package ships the 33% ally-cost default; 66% and the visual trades remain source/playtest options.
   [Debris validation](docs/experiments/EXP-011-broadphase-correctness.md) ·
   [Guard range experiment](docs/experiments/EXP-030-guard-range-runtime.md) ·
   [Pathfinding work](docs/research/2026-11-25-last-stand-congestion-price.md)
@@ -161,8 +168,9 @@ late-game replay validation is still open.
 This is a **singleplayer alpha**. Use a writable copy of your own compatible Windows installation
 of Zero Hour. The [patcher guide](patcher/README.md) lists the recognized game files and supported
 runtime configurations. Multiplayer, existing saves, replays, and compatibility with individual
-community mods still need validation. The congestion-price and visual-trade profiles are source
-experiments, not part of the published package.
+community mods still need validation. The 33% ally-cost profile is baked into the published package;
+the 66% benchmark configuration and visual-trade switches are source experiments, not package
+options.
 
 ## Source and build
 

@@ -18,7 +18,7 @@ class Transactions(unittest.TestCase):
         self.original={'Generals.exe':b'inert retail executable','d3d8.dll':b'inert known proxy','INIZH.big':b'inert game data','!mod.gib':b'inert mod data'}
         for name,data in self.original.items():(self.game/name).write_bytes(data)
         (self.pkg/'engine.exe').write_bytes(b'inert replacement executable')
-        self.manifest=dict(schema=1,version='0.1.0-alpha.1',payload={'engine.exe':digest(b'inert replacement executable')},profiles=[dict(id='synthetic-only',files={k.lower():digest(v) for k,v in self.original.items()},materialize=[{'from':'!mod.gib','to':'!mod.big'}])])
+        self.manifest=dict(schema=1,version='0.1.0-alpha.2',payload={'engine.exe':digest(b'inert replacement executable')},profiles=[dict(id='synthetic-only',files={k.lower():digest(v) for k,v in self.original.items()},materialize=[{'from':'!mod.gib','to':'!mod.big'}])])
         self.save_manifest()
     def save_manifest(self):(self.pkg/'manifest.json').write_text(json.dumps(self.manifest),encoding='utf-8')
     def tearDown(self):self.temp.cleanup();self.package_temp.cleanup()

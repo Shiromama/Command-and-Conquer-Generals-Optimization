@@ -3,7 +3,7 @@
   "project": "Zero Hour engine optimization",
   "phase": "P2",
   "phase_name": "Profile and optimize the engine",
-  "status": "Published Windows singleplayer alpha v0.1.0-alpha.1 (2026-11-18) remains the verified install package and predates the T-112 pathfinding work. The source engine now reaches 30.06 ms / 33.3 FPS in the 481-frame Last Stand heavy window with the opt-in 66% ally-congestion price (path 9,684 vs 14,680 us/frame; deterministic CRC 695F3403 but gameplay-changing) and 29.01 ms / 34.5 FPS with three visual trades. The 33% price is the user's feel choice and the source playtest default; it resolves the replay at about frame 8,400. Native D3D8 stays on the Intel iGPU; the optional d3d8to9 wrapper routes the same build to the GTX 1650 Ti (46.87 -> 36.80 ms, exact reference CRC). Behaviour-preserving levers (cache TTL, prefetch, workers, admissible heuristic, render thread, draw batching) are measured and rejected; the remaining serial path work is ordinary/closest/attack searches. Open: T-116 group path failures, T-117 deploy guard, T-128 live stuck groups, packaging the opt-in profile, and replay validation. The public source snapshot is T-129.",
+  "status": "Published Windows singleplayer alpha v0.1.0-alpha.2 (2026-11-26) ships the 33% ally-congestion pathfinding default (gameplay trade; the Last Stand benchmark replay resolves around frame 8,400) plus the current engine fixes and the 0.1.0-alpha.2 patcher. The 66% benchmark configuration (30.06 ms / 33.3 FPS) and the three visual trades (29.01 ms / 34.5 FPS) remain source/playtest options and are not in the package. The package uses system D3D8 and does not install d3d8to9. Packaged engine E728D945...1721; ZIP 7B4E442B...D5BD. The public source snapshot is T-129/T-130.",
   "updated_at": "2026-11-26",
   "publication_review": {
     "task": "T-091",
@@ -45,7 +45,7 @@
     }
   },
   "canonical_entrypoint": "AGENTS.md",
-  "current_focus": "T-112 is closed. The 481-frame Last Stand heavy window (1,000 units, 1920x1080) reaches 30.06 ms / 33.3 FPS with the opt-in 66% ally-congestion price (path 9,684 vs 14,680 us, logic 25.52 vs 31.00, deterministic CRC 695F3403, 523 commands, replay completes at 17,402) and 29.01 ms / 34.5 FPS with the three visual trades (p90 45.42, calibration 7,522 us vs 7,697 baseline). The 33% price is the user's chosen feel and the source playtest default; it resolves the replay at ~8,400. 0% is slower (43.75 ms); 50%/60% resolve early. The remaining optimization work is integration and validation, not another local lever: T-116 group path failures, T-117 deploy guard, and T-128 live stuck groups. T-129 published the source/docs snapshot and refreshed the public README.",
+  "current_focus": "T-130 shipped the 33% ally-cost singleplayer alpha (0.1.0-alpha.2). The prepared engine bakes the 33% fallback, strips the diagnostic environment reads, and keeps the 66% benchmark and visual-trade switches out of the package. The package passed 43 production patcher tests (6 debug-only skips), stock and ShockWave install/restore (1,914/288 files), and a native 1920x1080 startup smoke. Remaining work is integration/playback validation, not another packaged default: T-116 group path failures, T-117 deploy guard, and T-128 live stuck groups. T-112's 66% benchmark and visual trades remain source-only.",
   "t113_native_results": {
     "no_reopen": {
       "covered": 644,
@@ -347,6 +347,12 @@
       "title": "Above 30 FPS in the 1,000-unit Last Stand heavy window",
       "status": "done",
       "doc": "docs/research/2026-11-25-last-stand-congestion-price.md"
+    },
+    {
+      "id": "M17",
+      "title": "Ship the 33% ally-cost singleplayer alpha",
+      "status": "done",
+      "doc": "docs/research/2026-11-25-last-stand-congestion-price.md"
     }
   ],
   "blockers": [
@@ -490,34 +496,29 @@
     "remediation_report": "docs/research/2026-11-18-review-fixes.md"
   },
   "alpha_release": {
-    "task": "T-080/T-081",
-    "date": "2026-11-18",
-    "version": "0.1.0-alpha.1",
-    "github_release": "https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases/tag/v0.1.0-alpha.1",
-    "github_download": "https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases/download/v0.1.0-alpha.1/zh-patcher-0.1.0-alpha.1.zip",
-    "package_dir": "artifacts/2026-11-18-patcher-alpha/candidate-17/zh-patcher-0.1.0-alpha.1",
-    "package_zip": "artifacts/2026-11-18-patcher-alpha/candidate-17/zh-patcher-0.1.0-alpha.1.zip",
-    "package_zip_sha256": "11EF4444DF45FCC950890943813FEC598F9205369DBC7CB353AD1F02106D354D",
-    "engine_sha256": "3EAED3D0FEB79CEF55EC44C443A1010E11AA1CB3B78FB678E16EE98BB2184B87",
-    "engine_build": "build/t102-alpha-release/GeneralsMD/Release/generalszh.exe",
-    "engine_source": "build/t102-alpha-source",
-    "corresponding_source_sha256": "9DA4E7600888D02DF5092B642F5208506864CFF04BF1287DA7DB9F5914BAAF53",
+    "task": "T-130",
+    "date": "2026-11-26",
+    "version": "0.1.0-alpha.2",
+    "github_release": "https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases/tag/v0.1.0-alpha.2",
+    "github_download": "https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases/download/v0.1.0-alpha.2/zh-patcher-0.1.0-alpha.2.zip",
+    "package_dir": "artifacts/2026-11-26-patcher-alpha-2/candidate-18/zh-patcher-0.1.0-alpha.2",
+    "package_zip": "artifacts/2026-11-26-patcher-alpha-2/candidate-18/zh-patcher-0.1.0-alpha.2.zip",
+    "package_zip_sha256": "7B4E442BCD6DCA475169FC6A7CF1A0B4ED9B0FCFC2813E5CEF0F867B05E5D5BD",
+    "engine_sha256": "E728D9458FA4D0CA92EF5608C4A8099E1F79D1F5F0C98AC8665421328EDF1721",
+    "engine_build": "build/t130-alpha-release/GeneralsMD/Release/generalszh.exe",
+    "engine_source": "build/t130-alpha-source",
+    "corresponding_source_sha256": "A9DFE5228712B8F416B01BC8E20D7015CFF30A20F8C8C76C4AFBB75818D680CE",
     "tests": {
-      "production": "43 cases, 6 debug-only skips (candidate 16)",
-      "debug": "43 cases, 1 production-only skip (T-095)",
-      "publication_privacy": "Candidate 17 PDB records are filename-only. Both ZIPs and all nested source members passed path and CRC checks. Engine resources contain only the DPI manifest.",
-      "full_copy_roundtrips": "Candidate 17 installed, verified and restored all 1,914 stock files and 288 ShockWave files on disposable copies.",
-      "guard_source": "67 compiled actual-source cases",
-      "big_reader": "4 tests, including five invalid-bounds subcases",
-      "mod_overlay": "Windows case collisions, exact-base gating, backup preflight, read-only metadata and interrupted recovery verified in candidate 10",
-      "console_menu": "PowerShell 5.1 source launcher selected candidate 13, required manual folder selection, and restored 288 ShockWave file hashes",
-      "skirmish_speed": "24 compiled engine-source cases for independent render and simulation rates",
-      "console_progress": "Packaged PowerShell 5.1 menu emitted early status, timed scan counts and 19/19 under install and uninstall. All 288 original ShockWave hashes restored."
+      "production": "43 tests, 6 debug-only skips (alpha.2 release binary)",
+      "stock_roundtrip": "1,914 files restored; Generals.exe F37A4929...495B; d3d8.dll BE527618...41F7",
+      "shockwave_roundtrip": "288 files restored; same Generals.exe and d3d8.dll hashes",
+      "package": "11 checksums; 5,989 corresponding-source members; no private paths, credentials or game assets",
+      "native_smoke": "responsive 1920x1080 window; smoke.png retained"
     },
-    "native_smoke": "Candidate 14 direct ShockWave launch at 1920x1080. Snipping Tool took focus and game stayed visible and unminimized. All 288 original file hashes restored. Prior stock and borderless smokes are historical.",
-    "guard_runtime": "control-4 no shots at 335.75 vs legacy 324; fixed-1 guard 347.5 and first shots at frames 486/843/1260",
-    "limitations": "Singleplayer on recognized Zero Hour engine builds and compatible data mods. Unknown executable builds, graphics proxies and launcher mappings are refused. Arbitrary community mods, other executables, multiplayer, replays and long sessions require separate testing.",
-    "patcher_sha256": "16D8CBEA2A910F2A0D5EF3A38416F392A9ACA1A7116C0E2570E16EEA1D8F880D",
+    "smoke_screenshot": "artifacts/2026-11-26-patcher-alpha-2/candidate-18/smoke.png",
+    "limitations": "Singleplayer on recognized Zero Hour engine builds. Ships the 33% ally-cost gameplay trade; the 66% benchmark and visual trades are not included. System D3D8 only; d3d8to9 not installed. Multiplayer, replays, existing saves, individual community mods and long sessions remain uncertified. Unsigned.",
+    "patcher_sha256": "D07A61CC4593A19808120930210C1525512E391F60E3FF33A8FFCC48283B6373",
+    "previous_release": "0.1.0-alpha.1",
     "shockwave_settings": "Detail > Custom opens Advanced Display Options. Shipped AA and Unlock FPS controls are hidden by the layout (ISSUE-0096)."
   },
   "mod_overlay": {

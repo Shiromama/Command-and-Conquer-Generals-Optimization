@@ -4612,3 +4612,25 @@ hash is linked from this repository.
 ## 2026-11-26 - T-129: define CRC in the README
 
 [VERIFIED] Added a plain-language CRC definition before the Last Stand table: CRC is the engine per-frame state fingerprint; matching CRC and command streams mean an exact simulation match, and a different CRC means the battle changed. python tools/check_docs.py passes.
+
+## 2026-11-26 - T-130: alpha.2 ships the 33% ally-cost default
+
+[VERIFIED] Added `engine/patches/T-130-ally-cost-33.patch` and made it the only alpha-only
+feature patch: the guard-range, weapon-recoil and skirmish-speed fixes are already in
+`current-engine.patch`. The prepared alpha source bakes `std::atoi(v) : 33`, keeps the development
+default at 100%, and disables the diagnostic `ZH_*` reads. Fixed `prepare-alpha-engine.py` to consume
+the `std::` qualifier and preserve `ZH_PF_HEAP`; the previous scrub produced invalid
+`std::static_cast` tokens. Added `--source` so the build can use a fresh pinned worktree.
+
+[VERIFIED] Rebuilt Win32 Release engine `E728D945...1721` and patcher `0.1.0-alpha.2`
+(`D07A61CC...6373`). Candidate 18 ZIP is `7B4E442B...D5BD` (21,551,723 bytes); corresponding
+source `A9DFE522...80CE` (5,989 members). 11 package checksums, ZIP CRCs and the source archive
+pass; the source contains T-130, the 33% fallback and the disabled ally-cost getenv.
+
+[VERIFIED] Production patcher suite: 43 tests, 6 debug-only skips, OK. Stock and ShockWave
+install/verify/uninstall restored 1,914 and 288 files; `Generals.exe` returned to `F37A...495B` and
+`d3d8.dll` to `BE52...41F7`. Native startup smoke opened a responsive 1920x1080 window; screenshot
+`artifacts/2026-11-26-patcher-alpha-2/candidate-18/smoke.png`.
+
+[INFERRED] The package ships the 33% gameplay trade, not the 66% 30.06 ms benchmark or the 29.01 ms
+visual-trade configuration. Release publication is the next step.

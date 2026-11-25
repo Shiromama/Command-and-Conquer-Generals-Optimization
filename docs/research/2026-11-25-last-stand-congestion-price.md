@@ -21,6 +21,9 @@ vs the reference `04C62655`, 983 commands).
 [VERIFIED] The 33% price is the user's preferred feel and the source playtest default, but it ends
 the replay at about frame 8,400. The response is non-monotonic: 0% completes but is slower (43.75
 ms); 50% and 60% resolve early; 66% is the lowest value found that both completes and improves.
+The **alpha.2 package (2026-11-26) ships the 33% default**; the 66% benchmark configuration and the
+visual trades remain source/playtest options, so the 30.06 ms / 33.3 FPS and 29.01 ms / 34.5 FPS
+benchmarks are not the package default.
 
 ## Method
 
@@ -93,8 +96,8 @@ modern static-navigation/local-avoidance model would need to add the avoidance h
   38.07 ms mean / 55.01 ms p90 with a 7,542 us calibration. It is not the heavy window.
 - The visual trades were measured separately and combined once; the 29.01 ms run is a single
   best-case run, not a distribution.
-- The published Windows alpha predates this work and does not include the congestion price or the
-  visual trades.
+- The published `0.1.0-alpha.2` package (2026-11-26) bakes the 33% default; the 66% benchmark and
+  visual trades remain source-only. The earlier `0.1.0-alpha.1` predates this work.
 
 ## Artifacts
 
