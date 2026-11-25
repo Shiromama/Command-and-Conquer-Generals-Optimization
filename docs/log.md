@@ -4634,3 +4634,19 @@ install/verify/uninstall restored 1,914 and 288 files; `Generals.exe` returned t
 
 [INFERRED] The package ships the 33% gameplay trade, not the 66% 30.06 ms benchmark or the 29.01 ms
 visual-trade configuration. Release publication is the next step.
+
+## 2026-11-26 - T-130: alpha.2 release published
+
+[VERIFIED] Published [v0.1.0-alpha.2](https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases/tag/v0.1.0-alpha.2)
+at public commit `6061f56`; tag `v0.1.0-alpha.2` resolves to that commit. The release asset
+`zh-patcher-0.1.0-alpha.2.zip` is 21,551,723 bytes with SHA-256 `7B4E442B...D5BD`. A fresh download
+of the public asset reproduced the hash. The release target and asset URLs match the README and
+`docs/state.json`; all reachable public commits remain on the GitHub noreply identity.
+
+## 2026-11-26 - T-130: release build cleanup
+
+[VERIFIED] Preserved the final alpha.2 engine and patcher as `build/engines/t130-alpha.exe`
+(`E728D945...1721`), `build/engines/t130-alpha.pdb` and `build/engines/t130-patcher.exe`
+(`D07A61CC...6373`). Removed the generated 2.83 GiB `build/t130-alpha-release` tree, the 0.06 GiB
+alpha source, the 0.03 GiB patcher target and the 0.06 GiB `t130-engine-input` worktree. Candidate 18
+package artifacts are retained. Workspace is 40.94 GiB (informational, no fixed cap).

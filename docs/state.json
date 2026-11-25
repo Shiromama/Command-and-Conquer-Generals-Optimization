@@ -415,8 +415,8 @@
     "report": "docs/research/2026-11-20-workspace-prune.md"
   },
   "workspace_usage": {
-    "current_gib": 38.52,
-    "checked_at": "2026-11-20",
+    "current_gib": 40.94,
+    "checked_at": "2026-11-26",
     "report": "docs/research/2026-11-20-workspace-prune.md",
     "policy": "docs/decisions/ADR-0025-no-fixed-workspace-cap.md"
   },
