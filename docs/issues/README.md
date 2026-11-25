@@ -11,9 +11,53 @@
 
 | ID | Title | Severity | Status | Task |
 |---|---|---|---|---|
+| [ISSUE-0146](ISSUE-0146-docs-self-test-copies-workspace.md) | Docs validator self-test copies local build and game trees | Low | Open | T-119 |
 | [ISSUE-0100](ISSUE-0100-alpha-binary-local-build-paths.md) | Alpha binaries disclose local build paths | Medium | Fixed | T-094 |
 | [ISSUE-0101](ISSUE-0101-unbounded-mod-archive-extraction.md) | Mod inspection and import have no archive resource limits | Medium | Fixed | T-094 |
 | [ISSUE-0102](ISSUE-0102-security-workbench-start-timeout.md) | Codex Security workbench startup timed out | Low | Open | T-094 |
+| [ISSUE-0103](ISSUE-0103-published-docs-mojibake.md) | Published documentation contains misdecoded punctuation | Low | Fixed | T-099 |
+| [ISSUE-0104](ISSUE-0104-alpha-source-branding-assets.md) | Local alpha bundle contains upstream artwork | Medium | Fixed | T-102 |
+| [ISSUE-0105](ISSUE-0105-release-asset-upload-timeout.md) | GitHub release asset upload timed out | Medium | Fixed | T-102 |
+| [ISSUE-0106](ISSUE-0106-github-connector-write-denied.md) | GitHub connector denied the documentation write | Low | Workaround | T-104 |
+| [ISSUE-0107](ISSUE-0107-stress-replay-map-path.md) | Stress test replay cannot find Last Stand | Medium | Fixed | T-025 |
+| [ISSUE-0108](ISSUE-0108-last-stand-replay-sync.md) | Last Stand replay diverges during playback | Medium | Workaround | T-025 |
+| [ISSUE-0109](ISSUE-0109-last-stand-profiler-build-stall.md) | Last Stand profiler build stalled in parallel MSBuild | Low | Fixed | T-025 |
+| [ISSUE-0110](ISSUE-0110-group-cache-source-anchor.md) | Group cache script expected an absent include anchor | Low | Fixed | T-110 |
+| [ISSUE-0111](ISSUE-0111-group-cache-const-path-access.md) | Group cache diagnostic could not read a const Path | Low | Fixed | T-110 |
+| [ISSUE-0112](ISSUE-0112-group-memo-fixture-output-quoting.md) | Memo fixture compile misparsed the output directory | Low | Fixed | T-111 |
+| [ISSUE-0113](ISSUE-0113-group-clearance-preview-whitespace.md) | Group clearance integration preview compared tab-only whitespace | Low | Fixed | T-111 |
+| [ISSUE-0114](ISSUE-0114-release-map-smoke-autostart.md) | Release smoke started at the menu with the map argument | Low | Workaround | T-111 |
+| [ISSUE-0115](ISSUE-0115-solo-smoke-options-rewrite.md) | Solo mission smoke rewrote shared Options.ini | Low | Fixed | T-111 |
+| [ISSUE-0116](ISSUE-0116-last-stand-timing-variation.md) | Last Stand timing varied between diagnostic baselines | Low | Investigating | T-112 |
+| [ISSUE-0117](ISSUE-0117-field-shadow-path-access.md) | Formation field diagnostic could not read a const Path | Low | Fixed | T-112 |
+| [ISSUE-0118](ISSUE-0118-last-stand-maintained-control-exit.md) | Last Stand maintained-width control paused while minimized | Low | Workaround | T-112 |
+| [ISSUE-0119](ISSUE-0119-render-submission-source-anchor.md) | Render census generator found two source anchors | Low | Fixed | T-112 |
+| [ISSUE-0120](ISSUE-0120-last-stand-pgo-link-record-wrap.md) | PGO generator expected a single-line linker command | Low | Fixed | T-112 |
+| [ISSUE-0121](ISSUE-0121-team-syntax-unquoted-source.md) | Team-script syntax preview split a recorded source path | Low | Fixed | T-112 |
+| [ISSUE-0122](ISSUE-0122-fast-pgo-missing-train-folder.md) | Fast PGO preparation lacked a training folder | Low | Fixed | T-112 |
+| [ISSUE-0123](ISSUE-0123-last-stand-pgo-training-timeout.md) | Last Stand PGO training stopped before the stress window | Low | Workaround | T-112 |
+| [ISSUE-0124](ISSUE-0124-command-origin-include-path.md) | Script-origin syntax check missed a local include | Low | Fixed | T-112 |
+| [ISSUE-0125](ISSUE-0125-formation-neighbor-projection-overcount.md) | Formation neighbor sample projection exceeded its parent clock | Low | Investigating | T-112 |
+| [ISSUE-0126](ISSUE-0126-pool-bucket-scratch-headers.md) | Pool-bucket scratch compile resolved an original header first | Low | Fixed | T-112 |
+| [ISSUE-0127](ISSUE-0127-resolved-width-receipt-anchor.md) | Resolved-width preview expected a different CSV header call | Low | Fixed | T-112 |
+| [ISSUE-0128](ISSUE-0128-spgo-probe-runtime-dependency.md) | Standalone sample-PGO probe pulled in the security-cookie runtime | Low | Fixed | T-112 |
+| [ISSUE-0129](ISSUE-0129-unit-neighbor-command-path.md) | Unit-neighbor scratch batch used a forward-slash command path | Low | Fixed | T-112 |
+| [ISSUE-0130](ISSUE-0130-optimus-object-default-library.md) | Optimus export-only object advertised a conflicting default runtime | Low | Fixed | T-112 |
+| [ISSUE-0131](ISSUE-0131-adapter-module-name-case.md) | Adapter analyzer treated Windows module names as case-sensitive | Low | Fixed | T-112 |
+| [ISSUE-0132](ISSUE-0132-early-queue-overlay-include.md) | Early-queue syntax overlay could not find relative engine headers | Low | Fixed | T-112 |
+| [ISSUE-0133](ISSUE-0133-snapshot-page-publication.md) | Paged worker snapshot used an unavailable ownership query | Low | Fixed | T-112 |
+| [ISSUE-0134](ISSUE-0134-queue-window-dispatch-object.md) | Queue-window probe referenced the wrong local unit variable | Low | Fixed | T-112 |
+| [ISSUE-0135](ISSUE-0135-native-page-overlay-mixed-headers.md) | Native page overlay picked two versions of PathfindCell.h | Low | Fixed | T-112 |
+| [ISSUE-0136](ISSUE-0136-worker-policy-build-variant.md) | Worker policy treated a build macro as a C++ identifier | Low | Fixed | T-112 |
+| [ISSUE-0137](ISSUE-0137-worker-footprint-helper-scope.md) | Native worker staging used a protected helper and Windows macro name | Low | Fixed | T-112 |
+| [ISSUE-0138](ISSUE-0138-worker-search-bucket-header.md) | Worker search overlay included the bucket queue twice | Low | Fixed | T-112 |
+| [ISSUE-0139](ISSUE-0139-worker-launch-missing-page-switch.md) | Worker replay launcher omitted the native page switch | Low | Fixed | T-112 |
+| [ISSUE-0140](ISSUE-0140-unit-memo-runner-newlines.md) | Unit memo runner generator expanded nested newlines too early | Low | Fixed | T-112 |
+| [ISSUE-0141](ISSUE-0141-worker-raw-route-mismatch.md) | Native worker raw-route shadow differs from the original solver | Medium | Fixed | T-112 |
+| [ISSUE-0142](ISSUE-0142-worker-frozen-actor-id.md) | Frozen worker actor ID lookup failed to compile | Low | Fixed | T-112 |
+| [ISSUE-0143](ISSUE-0143-early-worker-fixture-mutated-input.md) | Early worker fixture mutated a published input | Low | Fixed | T-112 |
+| [ISSUE-0144](ISSUE-0144-early-worker-crush-signature.md) | Early worker capture used the wrong native crush signature | Low | Fixed | T-112 |
+| [ISSUE-0145](ISSUE-0145-route-guard-no-gpu-module.md) | Route-guard diagnostic ran without a D3D module | Medium | Open | T-112 |
 | [ISSUE-0099](ISSUE-0099-console-transaction-silent.md) | The console stays silent during patch transactions | Low | Fixed | T-090 |
 | [ISSUE-0097](ISSUE-0097-skirmish-speed-overrides-render-limit.md) | Starting skirmish forces the speed slider value into the renderer | Medium | Fixed | T-089 |
 | [ISSUE-0098](ISSUE-0098-exclusive-fullscreen-snipping.md) | Screen snipping minimizes the game in fullscreen | Medium | Fixed | T-089 |
@@ -35,7 +79,7 @@
 | [ISSUE-0007](ISSUE-0007-hybrid-gpu-default.md) | Game may run on the Intel iGPU instead of the GTX 1650 Ti | High | Workaround | T-039 |
 | [ISSUE-0008](ISSUE-0008-gentool-rebuilt-crash.md) | GenTool proxy crashes the rebuilt engine | High | Workaround | T-014 |
 | [ISSUE-0009](ISSUE-0009-no-heavy-benchmark.md) | No valid entity-heavy benchmark scenario | High | Fixed | T-015 |
-| [ISSUE-0010](ISSUE-0010-heavy-replay-unavailable.md) | No compatible heavy replay for late-game validation | Medium | Open | T-025 |
+| [ISSUE-0010](ISSUE-0010-heavy-replay-unavailable.md) | No compatible heavy replay for late-game validation | Medium | Workaround | T-025 |
 | [ISSUE-0011](ISSUE-0011-shockwave-alt-tab-null-texture-crash.md) | Repeated Alt+Tab crashes ShockWave (null texture on device restore) | High | Workaround | T-040 |
 
 ## When to file an issue

@@ -8,6 +8,9 @@ This file is the entry point for every human or AI agent working in this reposit
 Read it, then read `docs/state.json`, then the specific docs for your task. Do not rely on
 chat history: the repository is the source of truth.
 
+For engine debugging, follow [the unattended debugging runbook](docs/debugging.md).
+Start with an existing or scripted fixture that proves it exercised the target behavior.
+
 ---
 
 ## 1. What this repository is
@@ -17,6 +20,8 @@ chat history: the repository is the source of truth.
 | Game installation | `Command and Conquer Generals Zero Hour/` | **No** (ignored, 1.29 GB) | Read-only reference copy of Zero Hour. Never modify it. |
 | Game copies | `game/baseline-pristine/`, `game/work/` | **No** (ignored) | Verified baseline and mutable work copy; see [`docs/game-copies.md`](docs/game-copies.md). |
 | Engine test copy | `game/engine-test/` | **No** (ignored) | Rebuilt source engine with retail-exe backup; GenTool disabled. |
+| Build trees | `build/` | **No** (ignored) | Generated compiler output. Prefer one active tree; see §8. |
+| Alpha test copies | `game/alpha-*` | **No** (ignored) | Disposable patcher copies. Reuse the current pair; see §8. |
 | Engine patches | `engine/patches/` | Yes | Changes to the pinned C++ engine source. |
 | Patcher | `patcher/` | Yes | Reversible singleplayer alpha installer and mod overlay tooling. |
 | Documentation | `docs/` | Yes | Project state, verified facts, decisions, roadmap, research. |
@@ -57,6 +62,9 @@ See [engine build instructions](engine/README.md) and the [patcher guide](patche
    [`docs/tasks/BOARD.md`](docs/tasks/BOARD.md) when task status changed, and run
    `python tools/check_docs.py`. A session is not done while the check fails.
 9. **No unverified "done".** Record the command run and its outcome, not just a claim.
+10. **Do not create a new build tree, game copy or artifact set per task.** Reuse existing
+    output and remove superseded output after recording hashes. Run the size checker to see
+    growth; it is informational. See §8.
 
 ## 4. Evidence labels
 
@@ -90,6 +98,7 @@ verification is recorded (doc + section, or `artifacts/<run>/manifest.md`).
 | [`docs/issues/`](docs/issues/README.md) | Bug/problem register (`ISSUE-####`): severity, reproduction, workaround, resolution. |
 | [`docs/game-copies.md`](docs/game-copies.md) | Baseline/work copy identity, hashes, and portable workflow. |
 | [`tools/check_docs.py`](tools/check_docs.py) | Validator: links, state schema, log freshness, task/ADR/issue integrity. |
+| [`tools/check-workspace-size.py`](tools/check-workspace-size.py) | Read-only workspace size/budget report; run at session start and end. |
 | [`tools/build-engine.ps1`](tools/build-engine.ps1) | Configure/build the GPLv3 source (VS Community/ATL). |
 | [`engine/README.md`](engine/README.md) | Source build identity, patches, and staging. |
 | [`tools/prepare-game-copies.ps1`](tools/prepare-game-copies.ps1) | Create/verify the read-only baseline and mutable work copy. |
@@ -102,33 +111,87 @@ verification is recorded (doc + section, or `artifacts/<run>/manifest.md`).
 | [`tools/benchmark-shockwave-attrib.ps1`](tools/benchmark-shockwave-attrib.ps1) | Run a ShockWave army/nuke scenario with `ZH_ATTR_LOG` and stop the game afterwards. |
 | [`tools/analyze-attr-log.py`](tools/analyze-attr-log.py) | Summarize a frame-attribution CSV (buckets, logic parts, slowest frames, residual). |
 | [`tools/analyze-ab.py`](tools/analyze-ab.py) | Analyze an alternating A/B artifact set (A-1, B-1, …) in ms and FPS. |
+| [`tools/run-deploy-fixture.ps1`](tools/run-deploy-fixture.ps1) | Run one dev-only T-120 engine fixture with startup/progress/total deadlines and game-copy restore. |
+| [`tools/profile-game-resources.ps1`](tools/profile-game-resources.ps1) | Sample process/per-thread CPU, system/per-core CPU, GPU Engine and memory during a replay; writes `resource-samples.csv`. |
+| [`tools/play-t120.ps1`](tools/play-t120.ps1) | Launch the staged T-120 playtest engine with the validated local switches; `-Restore` puts the retail exe back. |
+| [`tools/prepare-deploy-fixture.py`](tools/prepare-deploy-fixture.py) | Inject/restore the dev-only T-120 fixture in the isolated source tree. |
 | [`.opencode/continuity.md`](.opencode/continuity.md) | Short cross-session checkpoint (current focus, next step). |
+| `build/` | Generated engine release trees and dependency build; ignored; one active + one published (§8). |
 | [`artifacts/README.md`](artifacts/README.md) | Naming/manifest rules for large evidence. |
 
 ## 6. Documentation update protocol
 
 | When this happens | Update |
 |---|---|
-| Starting a work session | Read `docs/state.json` + `docs/tasks/BOARD.md`; set task to In Progress. |
+| Starting a work session | Read `docs/state.json` + `docs/tasks/BOARD.md`; set task to In Progress; run `python tools/check-workspace-size.py` and search existing artifacts/builds for reuse. |
 | Discovering a verified fact | Add it to the matching doc with `[VERIFIED]` + command evidence. |
 | Making a structural choice | Add an ADR in `docs/decisions/`; link it from the task. |
 | Completing/failing work | Append `docs/log.md` entry (date, task ID, what changed, evidence); update BOARD. |
 | Changing phase/focus/blockers | Update `docs/state.json` (`updated_at` = latest log date) + `.opencode/continuity.md`. |
-| Producing large evidence | Put it in `artifacts/<YYYY-MM-DD>-<slug>/` with `manifest.md`; summarize in docs. |
+| Producing large evidence | Put it in `artifacts/<YYYY-MM-DD>-<slug>/` with `manifest.md`; one canonical folder per experiment; no duplicate runs or frame sequences; summarize in docs. |
+| Creating a build, game copy, or artifact | Reuse the active build/copy/evidence; keep one canonical set; record why new output is needed. |
 | Changing game behavior | Apply only to `game/work/` via a tracked profile, or a source patch; record hashes and verification. |
 | Hitting a failure, contradiction, or blocker | Create `docs/issues/ISSUE-####-slug.md`; link task; set task `Blocked` + `state.blockers` if progress stops. |
 | Fixing a bug/issue | Fill the resolution section with verification; log the fix; close only when verified. |
-| Ending a session | Run `python tools/check_docs.py`; commit docs change with task ID in message. |
+| Ending a session | Run `python tools/check_docs.py` and `python tools/check-workspace-size.py`; prune superseded output when practical and record the size; commit docs change with the task ID. |
 
 ## 7. Verification
 
 ```powershell
 python tools/check_docs.py            # validate the docs system
 python tools/check_docs.py --self-test  # prove the validator detects breakage
+python tools/check-workspace-size.py  # workspace size vs the 45/50 GiB budget
 ```
 
-Expected output: `OK: documentation system is consistent` and exit code 0.
+Expected output for the docs check: `OK: documentation system is consistent` and exit
+code 0. The size check prints a report and always exits 0; it is informational, not a gate.
 
-## 8. Current focus
+## 8. Workspace and evidence efficiency
+
+The workspace is local and ignored; Git stays small. The expensive growth is generated build
+trees, game copies and repeated artifacts. The goal is efficient reuse, not a fixed quota:
+there is no size cap. Policy: [ADR-0025](docs/decisions/ADR-0025-no-fixed-workspace-cap.md).
+
+**Builds**
+- Prefer one active release tree and reuse it across experiments. Keep additional trees only
+  while they are actively needed; do not create `build/<task>-release` per task.
+- When a tree is superseded, copy its final `generalszh.exe` (and PDB if needed) to
+  `build/engines/` with the SHA-256, then remove generated `.lib`, `.obj`, `.pch`, `.iobj`,
+  `.ipdb`, `.tlog`, `.idb`, `.ilk` files when they are no longer needed. Keep
+  `build/engine-vs-community/` for offline dependency builds.
+- Full-tree removal is a reviewed cleanup, not routine build output.
+
+**Game copies**
+- Reuse the documented copies. When a test needs pristine state, create one disposable copy,
+  record its journal/evidence, and remove it. Do not manufacture a new pair per candidate.
+- The reference installs, `game/baseline-pristine/` and `game/work/` are not disposable.
+
+**Artifacts**
+- One canonical `artifacts/YYYY-MM-DD-<slug>/` per experiment with `manifest.md`. Do not create
+  a second folder for a rerun or a renamed task; extend the existing manifest.
+- Keep settings, CSVs, summaries, hashes and a few representative screenshots or contact sheets.
+  Do not keep full-resolution frame sequences, duplicate CSVs/PNGs, or raw dumps after the doc
+  claim is supported. Compress large traces.
+- Link existing evidence instead of recopying it. If a repeat is unavoidable, record why and
+  delete the superseded run after the new manifest points to the retained files.
+
+**Reuse gate (before any build, game copy or artifact run)**
+1. Search `docs/`, `docs/tasks/BOARD.md`, `docs/research/`, `artifacts/*/manifest.md` and
+   `build/engines/` for existing evidence, a reusable build or a test copy.
+2. Reuse or extend it; do not repeat work because the task ID or path changed.
+3. If new output is still required, state what is new and keep only the delta.
+
+**Deletion**
+- Use an explicit plan with paths, sizes and hashes; verify each path is inside `build/`,
+  `game/` or `artifacts/` and never inside the immutable references.
+- Record the result in `docs/log.md`, `docs/state.json` and an artifact manifest.
+- Never delete tracked source, docs, patches or another agent's uncommitted work.
+
+**Size visibility**
+`python tools/check-workspace-size.py` reports the current footprint and the largest areas.
+It is informational and always exits 0; use it to spot duplicate trees, copies or artifact
+runs, not as a quota.
+
+## 9. Current focus
 
 See [`docs/state.json`](docs/state.json) for the current build, validation status, and blockers.

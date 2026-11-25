@@ -12,7 +12,7 @@
 | — | `%USERPROFILE%\Documents\Command and Conquer Generals Zero Hour Data` | Live user settings/saves; outside the copies | Yes (back up before tests) |
 
 Source installation (read-only, untouched):
-`C:\Program Files (x86)\R.G. Mechanics\Command and Conquer - Generals\Command and Conquer Generals Zero Hour`
+`C:\Program Files (x86)\<vendor>\Command and Conquer - Generals\Command and Conquer Generals Zero Hour`
 
 ## 2. Baseline identity
 

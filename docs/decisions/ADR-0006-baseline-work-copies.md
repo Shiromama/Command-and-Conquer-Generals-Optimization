@@ -9,7 +9,7 @@
 
 Baselines must be trustworthy: a measurement or fix is only meaningful against a known,
 unmodified game state. The only complete installation is under
-`Program Files (x86)\R.G. Mechanics\...`, which is ACL-protected and must never be edited.
+`Program Files (x86)\<vendor>\...`, which is ACL-protected and must never be edited.
 Earlier experiments showed how easy it is to leave config or test artifacts behind.
 
 At the same time, fixes must not depend on this specific PC. Hardcoded paths, registry GPU

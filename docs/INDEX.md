@@ -40,11 +40,15 @@
 | 29 | [`decisions/ADR-0007-shockwave-two-profiles.md`](decisions/ADR-0007-shockwave-two-profiles.md) | You are choosing between the performance engine and retail+GenTool. |
 
 | 30 | [`research/2026-11-15-low-level-optimization-validation.md`](research/2026-11-15-low-level-optimization-validation.md) | You need evidence, priorities and experiment gates for memory layout, allocation, SIMD, threading, pathfinding and Rust. |
+| 31 | [`research/2026-11-25-worker-contract-extension.md`](research/2026-11-25-worker-contract-extension.md) | You are wiring `findClosestPath` to `workerGroundSearch`: required predicates, parity harness, gates and risks. |
+| 32 | [`research/2026-11-25-large-unit-count-rts-practice.md`](research/2026-11-25-large-unit-count-rts-practice.md) | You are asking how other RTS games keep hundreds/thousands of units affordable: group pathing, flow fields, hierarchies, static/dynamic separation, budgeted jobs. |
+| 33 | [`research/2026-11-25-last-stand-congestion-price.md`](research/2026-11-25-last-stand-congestion-price.md) | You need the T-112 above-30-FPS result, the ally-congestion trade, and its replay/CRC evidence. |
 
 ## 2. Document catalog
 
 | Document | Kind | Maintained by | Update trigger |
 |---|---|---|---|
+| [debugging.md](debugging.md) | Runbook and fixture specification | All agents | Debug workflow or fixture requirements change |
 | [`project-brief.md`](project-brief.md) | Stable intent | Lead | Scope/goal changes only |
 | [`state.json`](state.json) | Machine state | Lead | Every session end |
 | [`environment.md`](environment.md) | Verified facts | Whoever verifies | Toolchain/machine change |
@@ -107,6 +111,8 @@ Full protocol: [`../AGENTS.md`](../AGENTS.md) §6.
 
 ## Workspace maintenance
 
+- [2026-11-20 workspace prune](research/2026-11-20-workspace-prune.md): 17.78 GiB permanently removed; [ADR-0025](decisions/ADR-0025-no-fixed-workspace-cap.md) keeps the reuse/retention rules without a fixed cap, and [`tools/check-workspace-size.py`](../tools/check-workspace-size.py) is informational.
+
 - [2026-11-17 cleanup audit](research/2026-11-17-workspace-cleanup-audit.md): measured disk usage, evidence retention, and review candidates; no deletions.
 
 - [2026-11-17 cleanup results](research/2026-11-17-cleanup-results.md): 6.99 GiB removed; preserved evidence and verification.
@@ -136,3 +142,22 @@ Full protocol: [`../AGENTS.md`](../AGENTS.md) §6.
 - [Candidate 10 overlay repair](research/2026-11-18-overlay-repair.md) — case aliases, exact-base verification, metadata preservation and the retained command-prompt installer.
 
 - [Console progress design](research/2026-11-18-console-progress-design.md) — T-090 status stages and measured file counts.
+
+
+- [Last Stand slowdown attribution](research/2026-11-19-last-stand-slowdown.md) — recovered ShockWave replay, same-clock frame timings, sustained ~7 FPS reproduction and pathfinding attribution (T-107).
+
+- [Last Stand pathfinding options](research/2026-11-19-last-stand-pathfinding-options.md) — cost budget, source audit, ranked optimization experiments and acceptance checks (T-108).
+
+- [Last Stand path search census](research/2026-11-19-last-stand-path-census.md) — checksum-checked attribution, observed group route repetition, and a targeted reuse prototype (T-109).
+
+- [Last Stand group cache prototype](research/2026-11-19-last-stand-group-cache.md) — checked clearance memo, native headless timing and whole-route guard result (T-110).
+- [Last Stand group pathfinding at 1080p](research/2026-11-19-last-stand-graphical-cache.md) — matched graphical replay, route parity and local engine integration (T-111).
+- [Last Stand 30 FPS investigation](research/2026-11-19-last-stand-30fps.md) — remaining frame budget and candidates for shared group searches and faster unit fallback (T-112).
+- [Alternate Last Stand search techniques](research/2026-11-19-last-stand-alternate-search.md) — source fit, scheduling limits, and expansion overlap evidence (T-112).
+- [Native Last Stand formation field](research/2026-11-19-last-stand-native-field.md) — actual snapped goals, live clearance diagnostics, and unit search locality (T-112).
+- [Last Stand live field repair](research/2026-11-19-last-stand-live-field.md) — bounded live search, compiled fixtures, and replacement cost (T-112).
+- [Repeated Last Stand script move commands](research/2026-11-19-last-stand-script-commands.md) — command origin, transient group identity, and unit-scan comparison (T-112).
+- [Last Stand local blockers and worker costs](research/2026-11-19-last-stand-occupancy-workers.md) — exact blocker vectors, combined budget, and parallel repair fixture (T-112).
+- [Last Stand move pipeline and dominated width](research/2026-11-19-last-stand-move-pipeline.md) — script move phases and a clearance-skip candidate (T-112).
+- [Last Stand maintained formation width](research/2026-11-19-last-stand-maintained-width.md) — packing cost, lazy updates, and a native candidate (T-112).
+- [Last Stand congestion pricing](research/2026-11-25-last-stand-congestion-price.md) — the 66% gameplay trade reaches 30.06 ms / 33.3 FPS (29.01 / 34.5 with visual trades), with the survival sweep and CRC evidence (T-112).

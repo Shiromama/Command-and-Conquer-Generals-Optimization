@@ -1,0 +1,721 @@
+--- /dev/null
++++ b/Core/GameEngine/Include/Common/LastStandPathCensus.h
+@@ -0,0 +1,50 @@
++#pragma once
++
++#include <cstdlib>
++
++namespace lastStandCensus {
++
++struct Context {
++    const char *reason = "direct";
++    unsigned actor = 0;
++    unsigned target = 0;
++    unsigned surfaces = 0;
++    int queueAge = -1;
++    int queueDepth = -1;
++    bool blocked = false;
++};
++
++inline Context context;
++inline unsigned navigationRevision = 0;
++inline unsigned fixedOccupancyRevision = 0;
++
++inline const char *outputPath()
++{
++    static const char *path = std::getenv("ZH_PATH_CENSUS");
++    return path;
++}
++
++inline unsigned setting(const char *name, unsigned fallback)
++{
++    const char *value = std::getenv(name);
++    return value ? static_cast<unsigned>(std::strtoul(value, nullptr, 10)) : fallback;
++}
++
++inline bool capture(unsigned frame)
++{
++    static const unsigned first = setting("ZH_PATH_CENSUS_FIRST", 14700);
++    static const unsigned last = setting("ZH_PATH_CENSUS_LAST", 17400);
++    return outputPath() && frame >= first && frame <= last;
++}
++
++class ContextScope {
++public:
++    explicit ContextScope(bool enabled) : enabled(enabled), previous(context) {}
++    ~ContextScope() { if (enabled) context = previous; }
++
++private:
++    bool enabled;
++    Context previous;
++};
++
++} // namespace lastStandCensus
+--- a/Core/GameEngine/Source/Common/ReplaySimulation.cpp
++++ b/Core/GameEngine/Source/Common/ReplaySimulation.cpp
+@@ -19,6 +19,7 @@
+ #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+
+ #include "Common/ReplaySimulation.h"
++#include "Common/LastStandPathCensus.h"
+
+ #include "Common/CRCDebug.h"
+ #include "Common/GameEngine.h"
+@@ -74,6 +75,7 @@
+        s_replayCount = 0;
+        return numErrors != 0 ? 1 : 0;
+    }
++	const unsigned censusStop = lastStandCensus::setting("ZH_PATH_CENSUS_STOP", 0);
+    // Note that we use printf here because this is run from cmd.
+    DWORD totalStartTimeMillis = GetTickCount();
+    for (size_t i = 0; i < filenames.size(); i++)
+@@ -87,7 +89,7 @@
+            UnsignedInt totalTimeSec = TheRecorder->getPlaybackFrameCount() / LOGICFRAMES_PER_SECOND;
+            while (TheRecorder->isPlaybackInProgress())
+            {
+-				const int progressFrameInterval = 10*60*LOGICFRAMES_PER_SECOND;
++				const int progressFrameInterval = (censusStop ? 60 : 600)*LOGICFRAMES_PER_SECOND;
+                if (TheGameLogic->getFrame() != 0 && TheGameLogic->getFrame() % progressFrameInterval == 0)
+                {
+                    // Print progress report
+@@ -103,6 +105,10 @@
+                    numErrors++;
+                    break;
+                }
++                if (censusStop && TheGameLogic->getFrame() >= censusStop) {
++                    printf("Census checkpoint reached with sync checks active at frame %u\n", TheGameLogic->getFrame());
++                    break;
++                }
+            }
+            UnsignedInt gameTimeSec = TheGameLogic->getFrame() / LOGICFRAMES_PER_SECOND;
+            UnsignedInt realTimeSec = (GetTickCount()-startTimeMillis) / 1000;
+--- a/Core/GameEngine/Source/GameLogic/AI/AIPathfind.cpp
++++ b/Core/GameEngine/Source/GameLogic/AI/AIPathfind.cpp
+@@ -77,6 +77,9 @@
+
+
+ #include "PathfindTelemetry.inc"
++#include "GroupCacheProbe.inc"
++
++static unsigned censusEnqueueFrame[PATHFIND_QUEUE_LEN]{};
+
+ static inline Bool IS_IMPASSABLE(PathfindCell::CellType type) {
+    // Return true if cell is impassable to ground units. jba. [8/18/2003]
+@@ -117,6 +120,7 @@
+
+ void Pathfinder::forceCleanCells()
+ {
++    groupCacheProbe::active = nullptr;
+    UnicodeString pathfinderFailoverMessage = TheGameText->FETCH_OR_SUBSTITUTE_FORMAT("GUI:PathfindingCrashPrevented", L"A pathfinding crash was prevented at frame %u, now switching to the crash fixed pathfinding.", TheGameLogic->getFrame());
+    TheInGameUI->message(pathfinderFailoverMessage);
+
+@@ -847,6 +851,7 @@
+  */
+ void Pathfinder::newMap()
+ {
++    ++lastStandCensus::navigationRevision;
+    m_wallHeight = TheAI->getAiData()->m_wallHeight; // may be updated by map.ini.
+    Region3D terrainExtent;
+    TheTerrainLogic->getMaximumPathfindExtent( &terrainExtent );
+@@ -1967,6 +1972,8 @@
+        return false;
+    }
+    m_queuedPathfindRequests[m_queuePRTail] = id;
++	if (lastStandCensus::outputPath())
++		censusEnqueueFrame[m_queuePRTail] = TheGameLogic->getFrame();
+    m_queuePRTail = nextSlot;
+    return true;
+ }
+@@ -2201,6 +2208,14 @@
+        if (obj) {
+            AIUpdateInterface *ai = obj->getAIUpdateInterface();
+            if (ai) {
++                const unsigned frame = TheGameLogic->getFrame();
++                const bool capture = lastStandCensus::capture(frame);
++                lastStandCensus::ContextScope census(capture);
++                if (capture) {
++                    auto &context = lastStandCensus::context;
++                    context.queueAge = static_cast<int>(frame - censusEnqueueFrame[m_queuePRHead]);
++                    context.queueDepth = (m_queuePRTail - m_queuePRHead + PATHFIND_QUEUE_LEN) % PATHFIND_QUEUE_LEN;
++                }
+                ai->doPathfind(this);
+                pathsFound++;
+            }
+@@ -2954,6 +2969,7 @@
+  */
+ Int Pathfinder::clearCellForDiameter(Bool crusher, Int cellX, Int cellY, PathfindLayerEnum layer, Int pathDiameter)
+ {
++    return groupCacheProbe::clearance(cellX, cellY, layer, pathDiameter, crusher, [&]() -> Int {
+    Int radius = pathDiameter/2;
+    Int numCellsAbove = radius;
+    if (radius==0) numCellsAbove++;
+@@ -3012,6 +3028,7 @@
+    }
+    if (pathDiameter < 2) return 0;
+    return clearCellForDiameter(crusher, cellX, cellY, layer, pathDiameter-2);
++    });
+ }
+
+ /**
+@@ -3240,7 +3257,8 @@
+                                                     const Coord3D *rawTo, Int pathDiameter, Bool crusher)
+ {
+     zhpf::Trace zhTrace("findGroundPath",nullptr,from,rawTo);
+-    return zhTrace.finish([&]() -> Path * {
++    groupCacheProbe::RouteProbe probe(*from, *rawTo, pathDiameter, crusher);
++    Path *result = [&]() -> Path * {
+    //CRCDEBUG_LOG(("Pathfinder::findGroundPath()"));
+ #ifdef DEBUG_LOGGING
+    Int startTimeMS = ::GetTickCount();
+@@ -3632,7 +3650,9 @@
+    }
+    return nullptr;
+
+-    }());
++    }();
++    probe.finish(result);
++    return zhTrace.finish(result);
+ }
+
+ /**
+@@ -3764,6 +3784,7 @@
+                                                     const Coord3D *rawTo, Bool crusher, Bool closestOK)
+ {
+     zhpf::Trace zhTrace("internal_findHierarchicalPath",nullptr,from,rawTo);
++    zhTrace.setCoarseInputs(locomotorSurface, isHuman, crusher, closestOK, static_cast<unsigned>(m_ignoreObstacleID));
+     return zhTrace.finish([&]() -> Path * {
+    //CRCDEBUG_LOG(("Pathfinder::findGroundPath()"));
+ #ifdef DEBUG_LOGGING
+--- /dev/null
++++ b/Core/GameEngine/Source/GameLogic/AI/GroupCacheProbe.inc
+@@ -0,0 +1,122 @@
++// T-110: diagnostic-only group clearance memo and route guard measurement.
++#include <array>
++#include <bit>
++
++namespace groupCacheProbe {
++
++struct Entry {
++    unsigned generation = 0;
++    int x = 0, y = 0, layer = 0, diameter = 0, result = 0;
++    bool crusher = false;
++};
++
++inline std::array<Entry, 8192> entries;
++inline unsigned generation = 0;
++inline unsigned ordinal = 0;
++
++inline FILE *log()
++{
++    static FILE *file = []() -> FILE * {
++        const char *name = std::getenv("ZH_GROUP_CACHE_LOG");
++        FILE *output = name ? std::fopen(name, "w") : nullptr;
++        if (output) {
++            std::setvbuf(output, nullptr, _IOFBF, 262144);
++            std::fprintf(output, "frame,ordinal,mode,revision,fixed_revision,from_x,from_y,from_z,to_x,to_y,to_z,diameter,crusher,returned,route_hash,calls,hits,checked,mismatches,usec\n");
++        }
++        return output;
++    }();
++    return file;
++}
++
++struct RouteProbe;
++inline RouteProbe *active = nullptr;
++
++struct RouteProbe {
++    RouteProbe(const Coord3D &from, const Coord3D &to, int diameter, bool crusher)
++        : from(from), to(to), diameter(diameter), crusher(crusher)
++    {
++        if (!log() || !TheGameLogic || !TheGameLogic->isInReplayGame()) return;
++        frame = TheGameLogic->getFrame();
++        if (!lastStandCensus::capture(frame)) return;
++        sequence = ++ordinal;
++        revision = lastStandCensus::navigationRevision;
++        fixedRevision = lastStandCensus::fixedOccupancyRevision;
++        previous = active;
++        // Assign two calls per pair to opposite modes, rotating order to break periodicity.
++        unsigned pair = (sequence - 1) / 2;
++        unsigned mixed = pair * 0x9e3779b9u;
++        verify = frame < 14730;
++        memo = verify || (((sequence - 1) ^ (mixed >> 31)) & 1) != 0;
++        if (++generation == 0) {
++            for (auto &entry : entries) entry.generation = 0;
++            ++generation;
++        }
++        stamp = generation;
++        active = memo ? this : nullptr;
++        QueryPerformanceCounter(&begin);
++    }
++
++    ~RouteProbe()
++    {
++        if (sequence) active = previous;
++    }
++
++    void finish(Path *path)
++    {
++        if (!sequence) return;
++        LARGE_INTEGER end{}, frequency{};
++        QueryPerformanceCounter(&end);
++        QueryPerformanceFrequency(&frequency);
++        double usec = (end.QuadPart - begin.QuadPart) * 1000000.0 / frequency.QuadPart;
++        unsigned long long hash = 14695981039346656037ull;
++        if (path) for (const PathNode *node = path->getFirstNode(); node; node = node->getNext()) {
++            const Coord3D &pos = *node->getPosition();
++            for (float component : {pos.x, pos.y, pos.z}) {
++                hash ^= std::bit_cast<unsigned>(component);
++                hash *= 1099511628211ull;
++            }
++            hash ^= static_cast<unsigned>(node->getLayer());
++            hash *= 1099511628211ull;
++        }
++        std::fprintf(log(), "%u,%u,%s,%u,%u,%u,%u,%u,%u,%u,%u,%d,%u,%u,%llu,%u,%u,%u,%u,%.3f\n",
++            frame, sequence, verify ? "verify" : memo ? "memo" : "control", revision, fixedRevision,
++            std::bit_cast<unsigned>(from.x), std::bit_cast<unsigned>(from.y), std::bit_cast<unsigned>(from.z),
++            std::bit_cast<unsigned>(to.x), std::bit_cast<unsigned>(to.y), std::bit_cast<unsigned>(to.z),
++            diameter, unsigned(crusher), unsigned(path != nullptr), hash, calls, hits, checked, mismatches, usec);
++    }
++
++    Coord3D from, to;
++    int diameter;
++    bool crusher;
++    bool memo = false, verify = false;
++    unsigned frame = 0, sequence = 0, stamp = 0, revision = 0, fixedRevision = 0;
++    unsigned calls = 0, hits = 0, checked = 0, mismatches = 0;
++    LARGE_INTEGER begin{};
++    RouteProbe *previous = nullptr;
++};
++
++template<class Compute>
++int clearance(int x, int y, int layer, int diameter, bool crusher, Compute compute)
++{
++    RouteProbe *probe = active;
++    if (!probe) return compute();
++    ++probe->calls;
++    unsigned key = unsigned(x) * 73856093u ^ unsigned(y) * 19349663u ^
++        unsigned(layer) * 83492791u ^ unsigned(diameter) * 2654435761u ^ unsigned(crusher);
++    auto &entry = entries[key & (entries.size() - 1)];
++    if (entry.generation == probe->stamp && entry.x == x && entry.y == y &&
++        entry.layer == layer && entry.diameter == diameter && entry.crusher == crusher) {
++        const int memoized = entry.result;
++        ++probe->hits;
++        if (!probe->verify) return memoized;
++        const int original = compute();
++        ++probe->checked;
++        if (original != memoized) ++probe->mismatches;
++        return original;
++    }
++    const int result = compute();
++    entry = {probe->stamp, x, y, layer, diameter, result, crusher};
++    return result;
++}
++
++} // namespace groupCacheProbe
+--- a/Core/GameEngine/Source/GameLogic/AI/PathfindTelemetry.inc
++++ b/Core/GameEngine/Source/GameLogic/AI/PathfindTelemetry.inc
+@@ -2,11 +2,15 @@
+ #include "Common/PathfindTelemetry.h"
+ #include "Common/PathfindHeap.h"
+ #include "Common/OptimizationPolicy.h"
++#include "Common/LastStandPathCensus.h"
++#include <cmath>
+ #include <cstdio>
+ #include <cstdlib>
+ #include <cstring>
+ namespace zhpf {
+ inline FILE *requestLog=nullptr, *frameLog=nullptr;
++inline FILE *censusLog=nullptr;
++inline const Object *censusActor=nullptr;
+ inline bool initialized=false;
+ inline LARGE_INTEGER frequency;
+ inline unsigned nextRequest=0;
+@@ -16,8 +20,12 @@
+     return TheGameLogic && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame()
+         && !TheGameLogic->isInMultiplayerGame() && !TheGameLogic->isInReplayGame();
+ }
++inline bool telemetryAllowed() {
++    return allowed() || (TheGameLogic && TheGameLogic->isInReplayGame());
++}
+ inline bool heapAllowed() {
+-    if (!allowed())
++    static const bool matchSkirmishHeap = zh::parseBoolean(getenv("ZH_PROFILE_MATCH_HEAP"), false);
++    if (!allowed() && !(matchSkirmishHeap && TheGameLogic && TheGameLogic->isInReplayGame()))
+         return false;
+     // T-022/T-035 follow-up: the stable heap is the default for singleplayer pathfinding.
+     // allowed() already excludes multiplayer and replays, where the retail List stays in use.
+@@ -32,7 +40,15 @@
+     initialized=true;
+     QueryPerformanceFrequency(&frequency);
+     const char *p=static_cast<const char*>(nullptr); if(p && *p) requestLog=fopen(p,"w");
+-    p=static_cast<const char*>(nullptr); if(p && *p) frameLog=fopen(p,"w");
++    p=getenv("ZH_PF_FRAME"); if(p && *p) frameLog=fopen(p,"w");
++    p=lastStandCensus::outputPath();
++    if (p && *p) {
++        censusLog=fopen(p,"w");
++        if (censusLog) {
++            setvbuf(censusLog, nullptr, _IOFBF, 262144);
++            fprintf(censusLog, "frame,scope,parent,kind,reason,object,player,ai,target,surfaces,crusher,closest,ignore,blocked,queue_age,queue_depth,revision,fallback,from_x,from_y,to_x,to_y,from_layer,to_layer,has_goal,returned,end_x,end_y,expansions,usec,route_hash,corridor_hash\n");
++        }
++    }
+     p=static_cast<const char*>(nullptr); if(p && *p) operationLog=fopen(p,"w");
+     if(operationLog) fprintf(operationLog,"request,op,cell,cost\n");
+     if(requestLog) fprintf(requestLog,"frame,kind,object,fromX,fromY,toX,toY,found,expansions,pushes,removes,maxOpen,pathLen,usec,fallback,expansionHash,pathHash\n");
+@@ -40,14 +56,15 @@
+     if(frameLog) fprintf(frameLog,"frame,requests,usec_total,usec_max,expansions_total,cmax_open,update_usec\n");
+ }
+ inline void flushFrame(unsigned frame,long long updateTicks) {
+-    if(!initialized && allowed() && static_cast<const char*>(nullptr)) init();
++    if(!initialized && telemetryAllowed() && getenv("ZH_PF_FRAME")) init();
+     if(!initialized) return;
+-    if(frameLog && allowed()) {
++    if(frameLog && telemetryAllowed()) {
+         fprintf(frameLog,"%u,%u,%.3f,%.3f,%u,%u,%.3f\n",frame,requests,totalUs,maxUs,expansionsTotal,peakOpen,updateTicks*1000000.0/frequency.QuadPart);
+         fflush(frameLog);
+     }
+     if(requestLog) fflush(requestLog);
+     if(operationLog) fflush(operationLog);
++    if(censusLog && frame % 30 == 0) fflush(censusLog);
+     requests=expansionsTotal=peakOpen=0; totalUs=maxUs=0;
+ }
+ struct Trace {
+@@ -59,11 +76,46 @@
+     Coord3D from{}, to{};
+     LARGE_INTEGER start{};
+     bool enabled=false, fallback=false;
++    bool detailed=false, hasGoal=false, closest=false;
++    unsigned surfaces=0, ignoredObstacle=0, crusher=0;
++    int human=-1;
++    const Object *actor=nullptr, *previousActor=nullptr;
++    lastStandCensus::Context context;
++
++    void setCoarseInputs(unsigned mask, bool isHuman, bool canCrush,
++                         bool allowsClosest, unsigned ignored)
++    {
++        if (!detailed) return;
++        surfaces=mask;
++        human=isHuman;
++        crusher=canCrush;
++        closest=allowsClosest;
++        ignoredObstacle=ignored;
++    }
++
++    static int cell(float coordinate)
++    {
++        return static_cast<int>(std::floor(coordinate / PATHFIND_CELL_SIZE_F));
++    }
+     Trace(const char *k, const Object *obj, const Coord3D *f, const Coord3D *t):heap(heapAllowed()),kind(k) {
+-        // Avoid QPC, file opens and list scans on normal runs and in network/replay modes.
+-        if(!allowed() || (!static_cast<const char*>(nullptr) && !static_cast<const char*>(nullptr) && !static_cast<const char*>(nullptr))) return;
+-        init(); enabled=requestLog || frameLog || operationLog; if(!enabled) return;
+-        object=obj?obj->getID():0; frame=TheGameLogic->getFrame();
++        // Collect diagnostic timings only when a frame log is requested.
++        if(!telemetryAllowed()) return;
++        frame=TheGameLogic->getFrame();
++        detailed=lastStandCensus::capture(frame);
++        if(!detailed && !getenv("ZH_PF_FRAME")) return;
++        init();
++        enabled=requestLog || frameLog || operationLog || (detailed && censusLog);
++        if(!enabled) return;
++        object=obj?obj->getID():0;
++        if (detailed) {
++            context=lastStandCensus::context;
++            previousActor=censusActor;
++            actor=obj ? obj : censusActor;
++            censusActor=actor;
++            hasGoal=t!=nullptr;
++            surfaces=context.surfaces;
++            if (actor) crusher=actor->getCrusherLevel();
++        }
+         if(f) from=*f; if(t) to=*t;
+ #if RETAIL_COMPATIBLE_PATHFINDING
+         fallback=!s_useFixedPathfinding;
+@@ -91,11 +143,49 @@
+         if(requestLog) fprintf(requestLog,"%u,%s,%u,%.9g,%.9g,%.9g,%.9g,%u,%u,%u,%u,%u,%u,%.3f,%u,%llu,%llu\n",
+             frame,kind,object,from.x,from.y,to.x,to.y,path!=nullptr,counters.expansions,counters.pushes,counters.removes,
+             counters.maxOpen,length,us,fallback,counters.expansionHash,hash);
+-        // Search functions are peers; if a future nested search is added, do not double-count its time.
++        if (detailed && censusLog) {
++            const Player *player=actor ? actor->getControllingPlayer() : nullptr;
++            unsigned actorId=object ? object : actor ? static_cast<unsigned>(actor->getID()) : context.actor;
++            const Object *owner=actor ? actor : actorId ? TheGameLogic->findObjectByID(static_cast<ObjectID>(actorId)) : nullptr;
++            if (!player && owner) player=owner->getControllingPlayer();
++            int playerIndex=player ? static_cast<int>(player->getPlayerIndex()) : -1;
++            int ai=human>=0 ? !human : player ? player->getPlayerType()==PLAYER_COMPUTER : -1;
++            int fromLayer=owner ? static_cast<int>(owner->getLayer()) : static_cast<int>(TheTerrainLogic->getLayerForDestination(&from));
++            int toLayer=hasGoal ? static_cast<int>(TheTerrainLogic->getLayerForDestination(&to)) : -1;
++            int endX=0, endY=0;
++            unsigned long long corridor=14695981039346656037ull;
++            int lastX=0, lastY=0, lastLayer=0;
++            bool first=true;
++            if (path) for (const PathNode *node=path->getFirstNode(); node; node=node->getNext()) {
++                const Coord3D &position=*node->getPosition();
++                endX=cell(position.x);
++                endY=cell(position.y);
++                const int x=static_cast<int>(std::floor(endX / 16.0));
++                const int y=static_cast<int>(std::floor(endY / 16.0));
++                const int layer=node->getLayer();
++                if (first || x!=lastX || y!=lastY || layer!=lastLayer) {
++                    for (int component : {x,y,layer}) {
++                        corridor ^= static_cast<unsigned>(component);
++                        corridor *= 1099511628211ull;
++                    }
++                    first=false;
++                    lastX=x;
++                    lastY=y;
++                    lastLayer=layer;
++                }
++            }
++            fprintf(censusLog,"%u,%u,%u,%s,%s,%u,%d,%d,%u,%u,%u,%u,%u,%u,%d,%d,%u,%u,%d,%d,%d,%d,%d,%d,%u,%u,%d,%d,%u,%.3f,%llu,%llu\n",
++                frame,counters.request,previous?previous->request:0,kind,context.reason,actorId,playerIndex,ai,context.target,
++                surfaces,crusher,unsigned(closest),ignoredObstacle,unsigned(context.blocked),context.queueAge,context.queueDepth,
++                lastStandCensus::navigationRevision,unsigned(fallback),cell(from.x),cell(from.y),cell(to.x),cell(to.y),
++                fromLayer,toLayer,unsigned(hasGoal),unsigned(path!=nullptr),endX,endY,counters.expansions,us,
++                static_cast<unsigned long long>(hash),corridor);
++        }
++        // Outer scopes alone contribute to the frame aggregate.
+         if(!previous) { ++requests; totalUs+=us; if(us>maxUs)maxUs=us;
+             expansionsTotal+=counters.expansions; if(counters.maxOpen>peakOpen)peakOpen=counters.maxOpen; }
+         return path;
+     }
+-    ~Trace() { if(enabled) active=previous; }
++    ~Trace() { if(enabled) active=previous; if(detailed && enabled) censusActor=previousActor; }
+ };
+ } // namespace zhpf
+--- a/Core/GameEngine/Source/GameLogic/AI/Pathfinder/PathfindCell.cpp
++++ b/Core/GameEngine/Source/GameLogic/AI/Pathfinder/PathfindCell.cpp
+@@ -24,6 +24,32 @@
+ #include "GameLogic/Pathfinder/PathfindCellList.h"
+ #include "GameLogic/Pathfinder/PathfindConstants.h"
+ #include "GameLogic/Module/BodyModule.h"
++#include "Common/LastStandPathCensus.h"
++
++namespace {
++class FixedOccupantProbe {
++public:
++    explicit FixedOccupantProbe(PathfindCell &cell)
++        : cell(cell), before(fixedOccupant(cell)) {}
++
++    ~FixedOccupantProbe()
++    {
++        if (fixedOccupant(cell) != before)
++            ++lastStandCensus::fixedOccupancyRevision;
++    }
++
++private:
++    static ObjectID fixedOccupant(PathfindCell &cell)
++    {
++        static const bool enabled = std::getenv("ZH_GROUP_CACHE_LOG") != nullptr;
++        return enabled && cell.getFlags() == PathfindCell::UNIT_PRESENT_FIXED
++            ? cell.getPosUnit() : INVALID_ID;
++    }
++
++    PathfindCell &cell;
++    ObjectID before;
++};
++}
+
+ /**
+  * Constructor
+@@ -229,6 +255,7 @@
+  */
+ void PathfindCell::setGoalUnit(ObjectID unitID, const ICoord2D &pos )
+ {
++    FixedOccupantProbe occupantProbe(*this);
+    if (unitID==INVALID_ID) {
+        // removing goal.
+        if (m_info) {
+@@ -301,6 +328,7 @@
+  */
+ void PathfindCell::setPosUnit(ObjectID unitID, const ICoord2D &pos )
+ {
++    FixedOccupantProbe occupantProbe(*this);
+    if (unitID==INVALID_ID) {
+        // removing position.
+        if (m_info) {
+--- a/Core/GameEngine/Source/GameLogic/AI/Pathfinder/PathfindZoneManager.cpp
++++ b/Core/GameEngine/Source/GameLogic/AI/Pathfinder/PathfindZoneManager.cpp
+@@ -17,6 +17,7 @@
+ */
+
+ #include "PreRTS.h"
++#include "Common/LastStandPathCensus.h"
+ #include "GameLogic/Pathfinder/PathfindCell.h"
+ #include "GameLogic/Pathfinder/PathfindConstants.h"
+ #include "GameLogic/Pathfinder/PathfindLayer.h"
+@@ -131,6 +132,7 @@
+
+ void PathfindZoneManager::markZonesDirty()  ///< Called when the zones need to be recalculated.
+ {
++    ++lastStandCensus::navigationRevision;
+ #if RTS_GENERALS && RETAIL_COMPATIBLE_PATHFINDING
+    m_nextFrameToCalculateZones = TheGameLogic->getFrame();
+ #else
+--- a/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
++++ b/Core/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
+@@ -1877,7 +1877,7 @@
+        if (!perfInit)
+        {
+            perfInit = true;
+-			const char *perfPath = static_cast<const char*>(nullptr);
++			const char *perfPath = getenv("ZH_PERF_LOG");
+            if (perfPath && *perfPath)
+            {
+                perfFile = fopen(perfPath, "w");
+--- a/GeneralsMD/Code/GameEngine/Source/Common/GameEngine.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/Common/GameEngine.cpp
+@@ -937,7 +937,7 @@
+    if (s_zhAttrEnabled < 0)
+    {
+        s_zhAttrEnabled = 0;
+-		const char *path = static_cast<const char*>(nullptr);
++		const char *path = getenv("ZH_ATTR_LOG");
+        if (path && *path)
+        {
+            s_zhAttrFile = fopen(path, "w");
+@@ -955,7 +955,7 @@
+                s_zhAttrEnabled = 1;
+            }
+        }
+-		const char *sample = static_cast<const char*>(nullptr);
++		const char *sample = getenv("ZH_ATTR_SAMPLE");
+        g_zhAttrSample = sample && atoi(sample) > 0;
+    }
+    return s_zhAttrEnabled == 1;
+--- a/GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp
+@@ -768,7 +768,12 @@
+            LARGE_INTEGER drawFreq, drawStart, drawEnd;
+            QueryPerformanceFrequency(&drawFreq);
+            QueryPerformanceCounter(&drawStart);
+-			TheDisplay->DRAW();
++			static const Int warmupUntil = [] {
++				const char *value = getenv("ZH_PROFILE_WARMUP_UNTIL");
++				return value ? atoi(value) : 0;
++			}();
++			if (warmupUntil <= 0 || !TheGameLogic->isInReplayGame() || TheGameLogic->getFrame() >= warmupUntil)
++				TheDisplay->DRAW();
+            QueryPerformanceCounter(&drawEnd);
+            static FILE *drawFile = nullptr;
+            static bool drawInit = false;
+--- a/GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIGuard.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIGuard.cpp
+@@ -49,6 +49,8 @@
+ #include "GameLogic/GameLogic.h"
+ #include "GameLogic/Weapon.h"
+ #include <cmath>
++#include <cstdlib>
++#include "Common/OptimizationPolicy.h"
+ #include "GameLogic/Module/AIUpdate.h"
+ #include "GameLogic/Module/BodyModule.h"
+ #include "GameLogic/Module/CollideModule.h"
+@@ -235,9 +237,10 @@
+     const Real guardRange = TheAI->getAdjustedVisionRangeForObject(obj,
+         AI_VISIONFACTOR_OWNERTYPE | AI_VISIONFACTOR_MOOD | AI_VISIONFACTOR_GUARDINNER);
+
+-    // Built-in singleplayer fix; preserve network/replay, AI difficulty and enter/hijack behavior.
++    static const bool matchSkirmishGuard = zh::parseBoolean(std::getenv("ZH_PROFILE_MATCH_GUARD"), false);
++    // Diagnostic replay probe defaults to the shipped guard policy.
+     if (!TheGameLogic || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame()
+-        || TheGameLogic->isInMultiplayerGame() || TheGameLogic->isInReplayGame()
++        || TheGameLogic->isInMultiplayerGame() || (TheGameLogic->isInReplayGame() && !matchSkirmishGuard)
+         || !(obj->getAI()->getMoodMatrixValue() & MM_Controller_Player)
+         || obj->getTemplate()->isEnterGuard())
+         return guardRange;
+--- a/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/AIUpdate.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/AIUpdate.cpp
+@@ -28,6 +28,7 @@
+ // Subsequently : John Ahlquist 2002 and a cast of thousands.
+
+ #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
++#include "Common/LastStandPathCensus.h"
+
+ #define DEFINE_LOCOMOTORSET_NAMES					// for TheLocomotorSetNames[]
+ #define DEFINE_AUTOACQUIRE_NAMES
+@@ -395,6 +396,16 @@
+ //-------------------------------------------------------------------------------------------------
+ void AIUpdateInterface::doPathfind( PathfindServicesInterface *pathfinder )
+ {
++    const bool censusEnabled = lastStandCensus::capture(TheGameLogic->getFrame());
++    lastStandCensus::ContextScope censusScope(censusEnabled);
++    if (censusEnabled) {
++        auto &context = lastStandCensus::context;
++        context.actor = static_cast<unsigned>(getObject()->getID());
++        context.surfaces = static_cast<unsigned>(m_locomotorSet.getValidSurfaces());
++        context.blocked = m_isBlocked || m_isBlockedAndStuck;
++        context.reason = m_isSafePath ? "safe" : m_isApproachPath ? "approach" : m_isAttackPath ? "attack" : m_isBlockedAndStuck ? "blocked_move" : "move";
++        context.target = m_isSafePath ? static_cast<unsigned>(m_repulsor1) : m_isAttackPath ? static_cast<unsigned>(m_requestedVictimID) : 0;
++    }
+    if (!m_waitingForPath) {
+        return;
+    }
+@@ -1671,6 +1682,16 @@
+  */
+ Bool AIUpdateInterface::computePath( PathfindServicesInterface *pathServices, Coord3D *destination )
+ {
++    const bool censusEnabled = lastStandCensus::capture(TheGameLogic->getFrame());
++    lastStandCensus::ContextScope censusScope(censusEnabled);
++    if (censusEnabled) {
++        auto &context = lastStandCensus::context;
++        context.actor = static_cast<unsigned>(getObject()->getID());
++        context.surfaces = static_cast<unsigned>(m_locomotorSet.getValidSurfaces());
++        context.blocked = m_isBlocked || m_isBlockedAndStuck;
++        if (context.queueAge < 0) context.reason = m_isBlockedAndStuck ? "blocked_move" : "move";
++        if (context.queueAge < 0) context.target = 0;
++    }
+
+    if (!m_isBlockedAndStuck)	{
+        destroyPath();
+@@ -1785,6 +1806,16 @@
+  */
+ Bool AIUpdateInterface::computeAttackPath( PathfindServicesInterface *pathServices, const Object *victim, const Coord3D* victimPos )
+ {
++    const bool censusEnabled = lastStandCensus::capture(TheGameLogic->getFrame());
++    lastStandCensus::ContextScope censusScope(censusEnabled);
++    if (censusEnabled) {
++        auto &context = lastStandCensus::context;
++        context.actor = static_cast<unsigned>(getObject()->getID());
++        context.surfaces = static_cast<unsigned>(m_locomotorSet.getValidSurfaces());
++        context.blocked = m_isBlocked || m_isBlockedAndStuck;
++        if (context.queueAge < 0) context.reason = "attack";
++        if (context.queueAge < 0) context.target = victim ? static_cast<unsigned>(victim->getID()) : 0;
++    }
+    //CRCDEBUG_LOG(("AIUpdateInterface::computeAttackPath() for object %d", getObject()->getID()));
+    // See if it has been too soon.
+    if (m_pathTimestamp >= TheGameLogic->getFrame()-2)
+@@ -3215,6 +3246,16 @@
+  */
+ void AIUpdateInterface::privateMoveAwayFromUnit( Object *unit, CommandSourceType cmdSource )
+ {
++    const bool censusEnabled = lastStandCensus::capture(TheGameLogic->getFrame());
++    lastStandCensus::ContextScope censusScope(censusEnabled);
++    if (censusEnabled) {
++        auto &context = lastStandCensus::context;
++        context.actor = static_cast<unsigned>(getObject()->getID());
++        context.surfaces = static_cast<unsigned>(m_locomotorSet.getValidSurfaces());
++        context.blocked = m_isBlocked || m_isBlockedAndStuck;
++        if (context.queueAge < 0) context.reason = "move_away";
++        if (context.queueAge < 0) context.target = unit ? static_cast<unsigned>(unit->getID()) : 0;
++    }
+    // the dead don't listen very well
+    if (isAiInDeadState() || (getObject()->isMobile() == FALSE) || !isAllowedToMoveAwayFromUnit())
+    {
+--- a/GeneralsMD/Code/GameEngine/Source/GameLogic/System/GameLogic.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameLogic/System/GameLogic.cpp
+@@ -3784,7 +3784,7 @@
+ void GameLogic::update()
+ {
+     LARGE_INTEGER zhPfUpdateBegin{},zhPfUpdateEnd{};
+-    const bool zhPfTiming=static_cast<const char*>(nullptr)!=nullptr;
++    const bool zhPfTiming=getenv("ZH_PF_FRAME")!=nullptr;
+     if(zhPfTiming) QueryPerformanceCounter(&zhPfUpdateBegin);
+     zhPathfindHarness(this);
+    // PROJECT PATCH (T-036/T-051): timer frequency and the phase CSV are initialised before any
+@@ -3793,7 +3793,7 @@
+    {
+        s_zhLogicInit = TRUE;
+        QueryPerformanceFrequency(&s_zhLogicFreq);
+-		const char *logicPath = static_cast<const char*>(nullptr);
++		const char *logicPath = getenv("ZH_PERF_LOGIC");
+        if (logicPath && *logicPath)
+        {
+            s_zhLogicLog = fopen(logicPath, "w");

@@ -117,7 +117,7 @@ The user launches a **different copy** than the workspace reference:
 
 | Item | Path / value | Evidence |
 |---|---|---|
-| Real install | `C:\Program Files (x86)\R.G. Mechanics\Command and Conquer - Generals\Command and Conquer Generals Zero Hour` | `[VERIFIED]` shortcuts |
+| Real install | `C:\Program Files (x86)\<vendor>\Command and Conquer - Generals\Command and Conquer Generals Zero Hour` | `[VERIFIED]` shortcuts |
 | Executable hash | `F37A4929…D344495B` (same as workspace) | `[VERIFIED]` |
 | GenTool config | `[gentool76] pitch=37 window=2` + `[updater]` | `[VERIFIED]` |
 | User options | `%USERPROFILE%\Documents\Command and Conquer Generals Zero Hour Data\options.ini` | `[VERIFIED]` |

@@ -14,6 +14,11 @@
 | [ADR-0004](ADR-0004-defer-big-tooling.md) | Defer BIG archive tooling | Accepted | 2026-11-14 |
 | [ADR-0005](ADR-0005-source-based-hybrid.md) | Source-based hybrid optimization, not a clean-room rewrite | Accepted | 2026-11-14 |
 | [ADR-0006](ADR-0006-baseline-work-copies.md) | Pristine baseline plus mutable work copy | Accepted | 2026-11-14 |
+| [ADR-0023](ADR-0023-group-clearance-search-scope.md) | Scope the group clearance cache to one search | Accepted | 2026-11-19 |
+| [ADR-0024](ADR-0024-workspace-retention-budget.md) | Workspace retention budget and reuse gate | Superseded by ADR-0025 | 2026-11-20 |
+| [ADR-0025](ADR-0025-no-fixed-workspace-cap.md) | No fixed workspace size cap; efficiency and reuse | Accepted | 2026-11-20 |
+| [ADR-0026](ADR-0026-unattended-engine-debugging.md) | Coverage-checked unattended engine fixtures | Accepted | 2026-11-22 |
+| [ADR-0027](ADR-0027-synchronous-group-kernel-worker-gate.md) | Keep the group kernel synchronous; gate a deferred ordinary worker on prefetch and snapshot cost | Accepted | 2026-11-23 |
 
 ## Template
 

@@ -35,7 +35,7 @@ test on a hardlinked copy of the workspace installation with two GenTool window 
 |---|---|---|
 | Host: ASUS TUF F15 FX506LI, i5-10300H 4C/8T, 24 GB, GTX 1650 Ti + Intel UHD | `[VERIFIED]` | CIM queries in this session |
 | Display: 1920×1080 @ 144 Hz on Intel UHD | `[VERIFIED]` | `Win32_VideoController` |
-| Real install is under `Program Files (x86)\R.G. Mechanics\...`, exe hash `F37A…495B` | `[VERIFIED]` | file hash; desktop shortcuts |
+| Real install is under `Program Files (x86)\<vendor>\...`, exe hash `F37A…495B` | `[VERIFIED]` | file hash; desktop shortcuts |
 | Workspace copy is byte-identical for `Generals.exe`/`d3d8.dll` | `[VERIFIED]` | SHA-256 |
 | Real `d3d8.cfg`: `[gentool76] window=2`; workspace default has no `window` | `[VERIFIED]` | file reads |
 | `options.ini`: 1920×1080, High LOD, 5000 particles, AA 14, shadows on | `[VERIFIED]` | file read |
@@ -55,7 +55,7 @@ test on a hardlinked copy of the workspace installation with two GenTool window 
 
 | Copy | Path | Notes |
 |---|---|---|
-| Real (launched) | `C:\Program Files (x86)\R.G. Mechanics\...\Zero Hour` | Extra mod BIGs, `modded.exe`, GenTool `window=2`, read-only config |
+| Real (launched) | `C:\Program Files (x86)\<vendor>\...\Zero Hour` | Extra mod BIGs, `modded.exe`, GenTool `window=2`, read-only config |
 | Backup | `C:\Command and Conquer - Generals backup\...\Zero Hour` | Same exe/d3d8 hashes; writable |
 | Workspace reference | `Command and Conquer Generals Zero Hour\` | Subset of the real install; default GenTool config |
 

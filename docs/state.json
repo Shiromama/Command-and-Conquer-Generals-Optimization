@@ -3,33 +3,239 @@
   "project": "Zero Hour engine optimization",
   "phase": "P2",
   "phase_name": "Profile and optimize the engine",
-  "status": "ShockWave is a data-only mod on retail 1.04; the rebuilt engine runs it. The retail and rebuilt game were both rendering on the Intel iGPU (D3D8 exposes one adapter). d3d8to9 + Windows' per-app high-performance preference moves it to the GTX 1650 Ti: 400 tanks + nuke FX 26.09 -> 19.66 ms median (1.33x), p95 35.94 -> 21.47 ms, over-budget 7.6% -> 0.1%. Steady destruction (400 tanks, lethal nukes) is 19.62 ms / p95 20.88 on the dGPU. Mass simultaneous deaths were bounded by debris collision-pair building in the spatial partition manager (pair build up to 90.5 ms/frame); T-046 adds a conservative 3D bounding-sphere broadphase that keeps every collision (debris-debris included) and cuts pair building to 4.0 ms max (frame p95 54.4 -> 46.0). Debris are verified rendering (draw log + screenshot); a separate 100-350 ms nuke-event hitch persists with debris suppressed to 24 and is therefore not debris. T-041 budgets and the T-043 pair filter remain optional fallbacks. Alt+Tab crash is a retail exclusive-fullscreen null-texture bug (EIP 0081A7A5). Borderless + GenTool survives 120 cycles; GenTool + d3d8to9 (d3d8x.dll) + borderless additionally loads nvd3dum (dGPU) with flat handles (738->738). Exclusive fullscreen crashes with GenTool or system D3D8. T-049 audit (2026-11-15): the pristine baseline still matches all 1,914 files and game/work differs only in d3d8.cfg; fixed the T-046 broadphase z-center error, harness environment/state leaks, and made the engine reproducible as one cumulative patch. Current engine F606E603...C007A3. T-050 validates low-level candidates against source and retained CSVs: pools and upstream pathfinding improvements already exist; prioritize lifecycle attribution and movement workloads before SIMD/threading/Rust. No new runtime speedup claimed. T-051 instruments one frame on a single clock (ZH_ATTR_LOG): the worst frames in the dense 5-cycle run are the cycle boundary (85 ms spawning 1,000 objects, 61-92 ms destroying 234-325 survivors, then 134-151 ms of first AI/physics ticks), and the nuke itself is a damage/death cascade (~13 ms per warhead, ~80-90 ms for a 9-warhead salvo), not a scan. Debris lifecycle is the dominant removable cost: suppressing debris changes median/p95 33.33/77.42 -> 18.82/38.90 ms. T-052: LTCG gives -3.6% median (2 alternating pairs) and a tentative -13.6% p95 in the stress run (1 pair). ISSUE-0020: a rebuilt engine never matches the recorded SHA-256 (link timestamp, PDB GUID, __DATE__); added tools/engine-identity.ps1 and a stable-hash convention. T-054/T-055: the debris broadphase was finally tested in-game with tall geometry and it was not sound. GeometryInfo stores max(r, h/2) as a cylinder's bounding radius (trees r=3 h=15: 7.50 vs the true 8.08), so debris touching tall trunks were rejected before the narrow phase. Fixed with a conservative radius (true half-diagonal per type + 2%/+0.25 margin); the ZH_BROADPHASE_CHECK probe now reports 0 rejected-but-colliding pairs over 3,667 frames / 675k candidates / 128.9k collisions, with candidates still 81% below broadphase-off. Per-frame collision counts are NOT bit-identical on/off because onCollide is order-dependent; the rejected-pair probe, not the count, is the acceptance test. Engine 11A4F523...F5E8. T-053: the deferred, keep-every-piece debris queue is implemented and measured (ZH_DEBRIS_DEFER, ObjectCreationList + GameLogic flush). It is correct (25,169 objects created, 12,187 clusters replayed, queue drains to 0, 0 dropped over 5 cycles) but the gain is within run variation: median unchanged on the 30 FPS cap, p95 -2.6%, p99 -6.9%, destroy max -21% against a 15% baseline spread, with updates max +5.9% because the work moves, it does not disappear. Not retained; kept opt-in. Engine 4942093F...76E8. T-053: the deferred, keep-every-piece debris queue was implemented and measured (ZH_DEBRIS_DEFER). It is correct (25,169 objects created, 12,187 clusters replayed, queue drains to 0, 0 dropped over 5 cycles) but it does not help: median unchanged on the 30 FPS cap, mean/p95 +1.2%/+0.9%, updates max +16% because the cost moves into the next frame instead of disappearing. Rejected; kept opt-in only. Engine 4942093F...76E8. T-056: controlled side-by-side on the same build/scene/conditions. With only the options profile changed, 1,000 units uncapped go from 25.04 to 7.48 ms median (3.35x; p95 30.35 -> 8.99, p99 47.37 -> 13.17; draw 14.49 -> 1.85 ms). On the ShockWave nuke stress scene the median is capped, but p95 drops 214.19 -> 84.50 ms (-60.5%) and p99 248.76 -> 141.37 (-43.2%). T-057: the render FPS cap is a supported engine option (30/50/56/60/.../240/480/Uncapped via Ctrl+Numpad +/-, -noFPSLimit, or UseFPSLimit in GameData). Sweep on 1,000 units at Low detail: cap 30/60/120/240 = 33.37/16.65/8.31/6.25 ms median (30/60/120/160 FPS), so the default cap was leaving ~5x of the renderer idle. Simulation stays 30 Hz (rendering interpolates), so uncapping buys smoothness, not gameplay. Fixed ISSUE-0022: the launcher's -NoFPSLimit switch was never applied; verified capped 33.36 ms vs -noFPSLimit 9.58 ms with ZH_FPS unset. Recommendation: 60 FPS cap for normal play; uncapped stays a preference, not a profile default. T-058: uncapped is now the default for every launch/benchmark in the repo. The old -noFPSLimit switch was inert twice over (launcher never passed it; the option table entry is compiled only under RTS_DEBUG, and this is a Release build). Fixed with an engine latch read by FramePacer (ZH_NOFPSLIMIT=1, immune to INI reloads); engine 71FEA54D...0E8E. Re-ran the comparison with BOTH sides uncapped: 1,000 tanks 21.86 -> 6.47 ms (3.38x, p95 27.12 -> 8.26); nuke stress scene 8.62 -> 4.33 ms median with p95 177.37 -> 61.59 (-65.3%). T-059: the reported healing/repair-icon slowdown was instrumented (ZH_ICON_LOG, ZH_HEAL_PULSE). Heal logic is cheap (+0.12 ms for 300 simultaneous attempts); the scalable cost is the heal icon overlay at ~0.011 ms per icon (~11 ms at 1,000). A 300-unit controlled reproduction did not show a significant drop, so the user's scene likely uses repair-field healing (AutoHealBehavior Radius queries + per-unit pulse particles). An Image->Texture cache in drawImage was tried and reverted: build F960D27B would not open a window, likely because the cache held textures without Add_Ref. Engine is healthy again at 1E4E3501...3310. T-060: radiation stress (ZH_RADIATION, sustained NukeRadiationFieldWeapon damage) was added to reproduce the reported healing slowdown without wiping the army. ShockWave, 300 units, 9 fields, 14,369 frames: median 4.29 ms, p95 14.12, with 272 simultaneous heal icons. The icon overlay costs 0.0005 ms per icon (p95 0.647 ms at 272 icons) and heal logic is +0.12 ms per 300 attempts, so no healing-attributable slowdown is reproducible in this build. Earlier ~11 us/icon estimate corrected. Engine E153FF07...3A25. T-061: the radius-heal path was built and instrumented (ZH_HEALERS respawns a radius healer; counters for partition queries, healed objects and pulse particles). With the stock one-shot marker: 625-645 queries over a run (<=5 per frame), 26 objects healed, 0 particles. Fix: AutoHealBehavior::pulseHealObject no longer calls createParticleSystem when the module has no UnitHealPulseParticleSystemName (all stock/ShockWave radius healers) or when the heal is refused - no visual change, wasted per-object work removed. Engine 2324C7FA...6FA9. T-061 (follow-up): the first radius reproduction used a SingleBurst marker that deletes itself the same frame (26 heals), so it was redone with Spec_RepairStationFieldRepairObject (radius 156.25, 6 HP every 500 ms, no lifetime): 141-147 queries over a run (<=1 per frame), 288 objects healed (41 max/frame), 0 pulse particles, 62 heal icons, and frame time 4.07-4.59 ms median vs 4.78 without. The radius path is provably cheap. The T-061 particle guard was reverted because every radius healer omits UnitHealPulseParticleSystemName, so the call was already a null no-op and the change could not be validated. Engine DCF51A29...2839. T-062: both 1,000-unit scenarios were re-run on the final engine DCF51A29. Stock ZH, 1,000 tanks, uncapped, 3 runs: median 7.81 ms (128 FPS), p95 9.38, 0.1% over 33 ms. ShockWave, 1,000 units x5 spawn/nuke cycles, 2 runs: median 4.18 ms (239 FPS), p95 63.01, p99 92.13, reproducing EXP-013 (4.33 / 61.59). T-063: the 1,000-unit scenarios were re-run with background apps closed (the T-062 run was taken while Edge/WebView2/Teams were active). Stock ZH, 1,000 tanks, 3 runs: median 6.62 ms (151 FPS), p95 7.96, p99 11.13, 0.1% over 33 ms. ShockWave, 1,000 units x5 spawn/nuke cycles, 2 runs: median 3.81 ms (262 FPS), p95 61.72, p99 85.50, 9.8% over 33 ms. The T-062 numbers were 15% worse purely from background load; EXP-013 §5.2 is the final reference. T-064: static low-level architecture audit (docs/research/2026-11-16-low-level-architecture-audit.md). Critical findings, no new runs: processDestroyList scans the whole sleepy-update vector per destroyed object (O(D x N); the non-sleepy half is compiled out and MAX_SUO=256 truncates); shadow volumes rebuild every frame with per-mesh NEW Geometry and 3 full VB scans (7.4 ms of 25.0 ms at High detail); a full m_objList disabled scan every logic frame; a full heap rebalance per sleepy pop; global critical sections on pool alloc/free and AsciiString copies. Filed T-065..T-068 with validation plans. Engine B54939EB...B88C staged. T-064: the opt-in optimisations are now default-on and configured through Options.ini instead of environment variables: DrawDistance=400, ShadowScreenRadius=120, DebrisBroadphase=yes, CosmeticPartition=yes, FPSLimit=no (uncapped). The in-game 'Unlock FPS' checkbox now writes FPSLimit (it was inert), and Ctrl+Numpad +/- still cycles presets. LTCG is enabled by default in the build script (-NoLtcg opts out). Engine 5FA73119...0168; startup smoke test passed (100 units spawned, no crash). Defaults not yet benchmarked - simulations paused. T-064 measured (EXP-016): with every optimisation default-on and no keys in Options.ini, stock 1,000 tanks average 6.92 ms = 144.9 FPS (reference 6.62 ms / 151.1 FPS, within run variation; the scene cannot benefit from a 400-unit cull because its grid is only ~540x510). ShockWave 1,000 x5 cycles: median 4.06 ms = 246.3 FPS, p95 49.59 ms = 20.2 FPS (reference 61.72 ms = 16.2 FPS) and p99 67.87 ms = 14.7 FPS (reference 85.50 = 11.7) - the tail improves ~25% in FPS. Fixed the literal \\$WithFpsLimit regression in launch-game.ps1 and benchmark-entity-heavy.ps1 (both parse clean). T-065 shipped and measured (EXP-017): processDestroyList now removes a dying object's modules via its own behaviour list instead of scanning every sleepy update. On the ShockWave 1,000 x5 scene over 3 alternating pairs: destroy phase max 92.91 -> 8.15 ms (-91.2%), destroy p95 3.21 -> 0.12 ms, frame p95 50.39 -> 48.23 ms (19.8 -> 20.7 FPS), p99 70.03 -> 66.45 ms (14.3 -> 15.0 FPS), median 4.17 -> 4.22 ms (239.8 -> 237.0 FPS, within run spread). Object census identical (every debris piece keeps its drawable). Engine F7E1E265...FE10. T-067 shipped (EXP-018): the per-frame disabled-status scan is skipped while a maintained counter is zero. Two alternating pairs on the stock 1,000-tank scene: median 7.32 -> 7.13 ms (136.6 -> 140.3 FPS), p99 12.21 -> 11.34 ms; the A-run spread (6.92-7.71) is larger than the delta, so it is not proven as a speed-up, only as no-regression less work. Sleepy-update bucketing was not implemented (wake-order risk, microsecond scale) and is recorded as T-069. Engine 68D23E4E...7246. T-066 rejected (EXP-020): a 33 ms per-instance throttle of the volumetric-shadow silhouette rebuild is neutral at High detail (median 7.85 -> 7.77 ms, 127.3 -> 128.7 FPS; p95 +1.9%), so the rebuild is not the shadow cost - rendering the volumes is; change reverted, T-035 (shadow maps) remains the lever. T-071 measured the shipping configuration on the ShockWave scene: 4.46 ms (224.9 FPS) median, p95 22.23 ms (45.0 FPS), p99 35.12 ms (28.5 FPS), and a same-binary A/B attributes -21.8% p95 (27.33 -> 21.37 ms, 36.6 -> 46.8 FPS) and -19.6% p99 to the debris partition skip. T-070 icon pass A/B: no effect (6.44 vs 6.45 ms in the clean pair), icons stay on. Engine rebuilt without T-066 as 758F453E...9384 and staged into both copies; smoke run 7.39 ms (135.3 FPS). T-068 measured (EXP-022): the object-pool critical section is 0.03% of frame time (19.3 calls/frame) and the AsciiString critical section 0.99% (1,587 calls/frame) after removing the in-process QPC measurement overhead; combined 1.01% (69 us per 6.8 ms frame). No lock change is justified; the lever, if string cost ever matters, is fewer copies, not a lock-free rewrite. Instrumentation ships inert behind ZH_LOCK_LOG. T-072 fixed ISSUE-0023: the user reported tanks vanishing when the camera moves - the object-distance cull (DrawDistance) had been made default-on at 400 units by T-064, and it hides units because it measures from the camera eye. Default is back to 0 (opt-in), presets and docs updated. Fresh demo on the fixed engine 912EC1EB: stock 1,000 tanks 22.54 -> 9.28 ms (44.4 -> 107.7 FPS, 2.43x), p95 24.78 -> 10.95 ms (40.4 -> 91.3 FPS); ShockWave 1,000 x5 nuke cycles 8.43 -> 3.95 ms (118.6 -> 253.3 FPS, 2.14x), p95 79.25 -> 27.23 ms (12.6 -> 36.7 FPS). With the cull off the stock scene is unchanged within noise (9.28 vs 9.23 ms), so the cull was buying nothing in these scenes. T-073 fixed ISSUE-0024: debris never rendered because the cosmetic partition skip left them with zero cell intersections, which getShroudedStatus() maps to SHROUDED, so the drawable was flagged fully obscured. Cosmetic debris/hulks now report CLEAR when they have no cells, and CosmeticPartition defaults to OFF - once debris render, the skip is not faster (same-session 1,000 x5 nuke runs: skip off 3.78 ms / 264.2 FPS median, p95 32.87 / 30.4; skip on 4.08 ms / 244.8, p95 37.30 / 26.8). The earlier 'tail win' of the skip was largely invisible debris. Shipping engine B8F73520: 4.13 ms (241.9 FPS) median, p95 36.38 ms (27.5 FPS), p99 48.72 ms (20.5 FPS). Heal icons verified working (272 drawn, 35% of frames) in a no-nuke radiation run. T-076 removed the two dead opt-ins: CosmeticPartition (skip + shroud exception + option key + tool flags) and the rejected T-053 deferred-debris queue (code, env reads, call sites). ZH_COSMETIC_PARTITION and ZH_DEBRIS_DEFER are absent from engine 059B5E7A; DrawDistance remains as the only opt-in cull. T-077 added in-game hover help (Options -> Video) on Anti-Aliasing, Detail, Unlock FPS, Particle Cap, Heat Effects and Cloud Shadows, set from code because the .wnd TOOLTIP field is a placeholder. Smoke run after both: 6.89 ms (145.2 FPS), 300 units. T-080/T-081 are complete: candidate 9 is a local alpha.1 package with engine 4FD3B817...2F42, the singleplayer human guard floor, and the weapon-fire recoil crash fix. It passes 31 production and 31 debug transaction tests, restores 1,914 stock and 288 ShockWave hashes, and reaches the stock and ShockWave main menus at native 1920x1080 borderless. Multiplayer, replays and non-cataloged builds remain uncertified. T-082 adds a community-style mod layer that keeps mods separate and activates them transactionally instead of copying them permanently into the game root. T-082 adds a GenLauncher-style mod layer: separate library, safe ZIP/7z/.big/.gib import, ordered activation, `.gib`/`.zbig` -> `.big`, journaled backups, restore after the game exits, and recovery after interruption; installers are never executed. Candidate 15 is the latest package. T-090 adds console progress for Install and Uninstall. T-089 decouples skirmish simulation speed from the render cap and defaults to windowed presentation for capture overlays. T-087 fixed the source launcher. T-088 adds compatibility for local mod data on recognized Zero Hour engine builds. T-086 simplifies the console menu to Install and Uninstall with automatic recovery. T-084 reproduced original file loss during candidate 9 overlay rollback. T-085 closes ISSUE-0089, ISSUE-0090 and ISSUE-0091 in candidate 10 and retains the command-prompt installer.",
-  "updated_at": "2026-11-18",
+  "status": "Published Windows singleplayer alpha v0.1.0-alpha.1 (2026-11-18) remains the verified install package and predates the T-112 pathfinding work. The source engine now reaches 30.06 ms / 33.3 FPS in the 481-frame Last Stand heavy window with the opt-in 66% ally-congestion price (path 9,684 vs 14,680 us/frame; deterministic CRC 695F3403 but gameplay-changing) and 29.01 ms / 34.5 FPS with three visual trades. The 33% price is the user's feel choice and the source playtest default; it resolves the replay at about frame 8,400. Native D3D8 stays on the Intel iGPU; the optional d3d8to9 wrapper routes the same build to the GTX 1650 Ti (46.87 -> 36.80 ms, exact reference CRC). Behaviour-preserving levers (cache TTL, prefetch, workers, admissible heuristic, render thread, draw batching) are measured and rejected; the remaining serial path work is ordinary/closest/attack searches. Open: T-116 group path failures, T-117 deploy guard, T-128 live stuck groups, packaging the opt-in profile, and replay validation. The public source snapshot is T-129.",
+  "updated_at": "2026-11-26",
   "publication_review": {
     "task": "T-091",
     "reviewed_commit": "7c7460b",
-    "status": "T-096 prepared a fresh source snapshot with the T-095 fixes and root license notices. Publish from a fresh repository with a public-safe commit identity. Keep the original history and candidate 15 local.",
+    "status": "The GitHub source repository and Windows singleplayer pre-release are public. Candidate 17 is the published package. Keep the original history and prior local candidates private.",
     "privacy_snapshot_manifest": "artifacts/2026-11-18-github-source/manifest.md",
+    "readme_disclosure_task": "T-098",
+    "documentation_encoding_task": "T-099",
+    "readme_quick_start_task": "T-102",
+    "readme_findings_task": "T-103",
+    "benchmark_table_legend_task": "T-104",
+    "benchmark_docs_public_commit": "84750daedfff2e3e07bbe1197df462f48634ef0d",
+    "readme_alt_tab_task": "T-106",
+    "readme_alt_tab_public_commit": "9c07bbc3589b13f4c38c7baacbb80dc436b0d450",
     "security_review": {
       "task": "T-094",
       "checked_source_sha256": "082e5e553f66ebe4e8dd3c1bab731fe8f23090670de6d494ab4fc3329a3aab8a",
       "binary_release_hold": [],
-      "fixed_in_candidate_16": ["ISSUE-0100", "ISSUE-0101"],
+      "fixed_in_candidate_16": [
+        "ISSUE-0100",
+        "ISSUE-0101"
+      ],
       "coverage": "Offline artifact inspection, focused static source review and candidate 16 binary/transaction verification. T-096 rechecked the new source export."
+    },
+    "source_publication": {
+      "task": "T-129",
+      "date": "2026-11-26",
+      "scope": "Tracked source and documentation snapshot on public main; public history preserved; workspace paths and the retail vendor path are redacted.",
+      "readme": "README.md",
+      "findings_note": "docs/research/2026-11-25-last-stand-congestion-price.md",
+      "chart": "docs/assets/last-stand-heavy-window.svg"
     }
   },
   "canonical_entrypoint": "AGENTS.md",
-  "current_focus": "Candidate 16 fixes build-path disclosure and requires prepared mod inputs. T-025 late-game replay validation remains blocked on ISSUE-0010.",
+  "current_focus": "T-112 is closed. The 481-frame Last Stand heavy window (1,000 units, 1920x1080) reaches 30.06 ms / 33.3 FPS with the opt-in 66% ally-congestion price (path 9,684 vs 14,680 us, logic 25.52 vs 31.00, deterministic CRC 695F3403, 523 commands, replay completes at 17,402) and 29.01 ms / 34.5 FPS with the three visual trades (p90 45.42, calibration 7,522 us vs 7,697 baseline). The 33% price is the user's chosen feel and the source playtest default; it resolves the replay at ~8,400. 0% is slower (43.75 ms); 50%/60% resolve early. The remaining optimization work is integration and validation, not another local lever: T-116 group path failures, T-117 deploy guard, and T-128 live stuck groups. T-129 published the source/docs snapshot and refreshed the public README.",
+  "t113_native_results": {
+    "no_reopen": {
+      "covered": 644,
+      "unsupported": 32,
+      "reopens": 0,
+      "expansions": 401546,
+      "legacy_expansions": 696330,
+      "reduction_percent": 42.33,
+      "route_equal": 351,
+      "cost_equal": 556,
+      "cost_higher": 74,
+      "manifest": "artifacts/2026-11-20-last-stand-no-reopen-native/manifest.md"
+    },
+    "standard_astar": {
+      "covered": 1737,
+      "reached": 1633,
+      "unreachable": 104,
+      "expansions": 8479758,
+      "legacy_expansions": 7139913,
+      "expansion_delta_percent": 18.8,
+      "route_length_delta_percent": -9.9,
+      "matching_routes": 0,
+      "manifest": "artifacts/2026-11-20-last-stand-standard-astar/manifest.md"
+    },
+    "stock_vs_mod_check": {
+      "stock_engine_stock_data": "loaded the custom map/replay; the static 166 FPS frame is the divergence/frozen state, not valid performance",
+      "rebuilt_engine_stock_data": "CRC mismatch at frame 0; stopped at frame 2 sync=mismatch",
+      "retail_engine_mod_data": "loading screen >2 min; no battle",
+      "manifest": "artifacts/2026-11-20-stock-vs-mod-replay/manifest.md"
+    },
+    "stock_vs_mod_design": {
+      "stock_objects": 3179,
+      "mod_objects": 4101,
+      "stock_weapons": 1715,
+      "mod_weapons": 3522,
+      "stock_particles": 1098,
+      "mod_particles": 1683,
+      "stock_fxlists": 485,
+      "mod_fxlists": 1364,
+      "stock_ini_files": 135,
+      "overlay_ini_files": 758,
+      "conclusion": "data-only mod; the narrow-lane survival scenario with 2,185 formation orders/300 ticks drives the group pathfinder, not the renderer or INI loader",
+      "manifest": "artifacts/2026-11-20-stock-vs-mod-design/manifest.md"
+    },
+    "external_research": {
+      "report": "docs/research/2026-11-20-external-pathfinding-research.md",
+      "key_finding": "the diagnostic replay is retail-compatible (30k pool + O(n) List); live singleplayer uses the T-022 heap and can use the non-retail per-cell allocation, so the replay FPS may be pessimistic",
+      "top_candidates": [
+        "fresh-skirmish live/default measurement",
+        "non-retail pathfinding allocation",
+        "group field/flow field plus D* Lite repair",
+        "HPA*/HAA* on the zone hierarchy",
+        "scenario design"
+      ]
+    },
+    "followups": {
+      "nonretail_allocation": {
+        "retail_exe": "C677E01653E87A565CDEB70AA04E493B2509D6BA3363B8656ED1AC1D3C5C6AEF",
+        "nonretail_exe": "D168B120C37F6DDB619EFE1F50ECF5850F4287BE1EF1963B049267F3A0B90CB2",
+        "synthetic": "ZH_STRESS fresh runs are partition-bound (50-276 requests, 0 expansions, l_partition 36-43 ms)",
+        "live": "8-player AI-only 10-min: frame 8.878 -> 8.143 ms, path requests 37,537 -> 21,723, expansions 12.16M -> 2.63M, l_ai 0.229 -> 0.064 ms, p99 30.658 -> 15.954 ms; behavior-changing; human idle; T-107 human stress not measured",
+        "manifest": "artifacts/2026-11-20-nonretail-pathfinding/manifest.md"
+      },
+      "hpa_model": {
+        "expansion_ratio_median": 0.489,
+        "cost_ratio_median": 1.004,
+        "within_1pct": "185/197",
+        "manifest": "artifacts/2026-11-20-hpa-star-model/manifest.md"
+      },
+      "scenario_edit": {
+        "map_copy": "Documents/Command and Conquer Generals Zero Hour Data/Maps/Last Stand Test",
+        "status": "staged; WorldBuilder geometry/script edit pending",
+        "manifest": "artifacts/2026-11-20-scenario-edit/manifest.md"
+      },
+      "group_field": "the width-2 repair is not a width-6 solver; prototype HPA*/HAA* first",
+      "v1_lead": "pre-patch .bak version unverified; no stock v1.0-vs-1.04 A/B yet"
+    },
+    "replay_parity": "15,242 searches, 2,185 commands, ordered queue tail and frame-17,402 sync exact"
+  },
+  "t116_group_path_failures": {
+    "date": "2026-11-21",
+    "run": "played live diagnostic; 3,184 formation commands (frames 16,978-17,249)",
+    "failed": 697,
+    "failed_percent": 21.9,
+    "failed_reasons": {
+      "zone_mismatch": 606,
+      "search_failed": 91,
+      "goal_width": 0
+    },
+    "failed_group_members_mean": 3.22,
+    "failed_group_members_median": 3,
+    "success_group_members_mean": 6.42,
+    "unique_zone_failure_leaders": 13,
+    "unique_search_failure_leaders": 1,
+    "window_path_requests": 8119,
+    "window_path_expansions": 8311723,
+    "window_path_search_us": 23128798,
+    "l_ai_mean_ms": 15.043,
+    "l_partition_mean_ms": 0.854,
+    "earlier_run": {
+      "failed": 315,
+      "total": 3142,
+      "failed_percent": 10.0,
+      "failed_group_members_mean": 4.2
+    },
+    "cause": "the group centre vehicle sits inside an AI base building footprint; the AI re-forms groups around the same 13 stuck leaders, so zone_mismatch repeats. Goal crowding is not the gate (zero goal_width).",
+    "diagnostic_build": {
+      "reason_goal_relax_exe": "3F65E3A4359ECD2297C402E254E1CB5904B402F3CA4E08F72CB779278D5FB0B3",
+      "spiral_start_nudge_exe": "5DB4D855661A89D323EF6D58E6EF8A89A95E4AB3AD0D66A754D6A2B22A321A5D",
+      "clear_leader_exe": "CA492C95CAB19BD46D2BD5ABDBA90EEC967D6EB5B6B2F3F2B4867C4CE85B3F2C",
+      "clear_leader_zone_exe": "3D2DFE2F5113B47EAAC9F2E8E1ADC125E2E3E5473E965B71EB7FB104F4DA840D",
+      "switches": [
+        "ZH_GROUP_START_RELAX",
+        "ZH_GROUP_ENDPOINT_RELAX"
+      ],
+      "log": "commands.csv adds reason,alt_leader"
+    },
+    "replay_status": "invalid even on the recording exe: CRC mismatch in frame 0; headless commands 0/2,784 match the live run",
+    "fix_order": [
+      "clear, unpinched, goal-zone member as the group leader (ZH_GROUP_START_RELAX)",
+      "goal ally relaxation ZH_GROUP_ENDPOINT_RELAX",
+      "cross-group route cache T-110/T-112",
+      "group aggregation",
+      "HPA*/clearance field"
+    ],
+    "combined_run": {
+      "run": "live-combined; T-117 switches on",
+      "commands": 2670,
+      "failed": 327,
+      "failed_percent": 12.2,
+      "failed_reasons": {
+        "zone_mismatch": 327,
+        "search_failed": 0,
+        "goal_width": 0
+      },
+      "alt_leader_success": 539,
+      "failed_leaders": 7,
+      "interval_mean_ms": 133.303,
+      "l_ai_mean_ms": 28.04,
+      "window_path_requests": 8350,
+      "window_path_expansions": 10026944,
+      "window_path_search_us": 29121682,
+      "note": "mixed with T-117; frame cost is not T-116-only"
+    },
+    "next": "T-116 on + T-117 + cached vision (combined3) is the next Last Stand run; the deploy-test T-116-off/T-117-on run had 134 large-group zone failures (4.2%, median 15) that the clear leader should rescue",
+    "report": "docs/research/2026-11-21-last-stand-group-path-failures.md",
+    "artifact": "artifacts/2026-11-20-fresh-skirmish/human-newmode/manifest.md",
+    "diagnostic_artifact": "artifacts/2026-11-21-t116-group-relax/manifest.md"
+  },
+  "t117_deploy_guard": {
+    "date": "2026-11-22",
+    "switches": [
+      "ZH_DEPLOY_GUARD_HOLD",
+      "ZH_DEPLOYED_AVOID",
+      "ZH_LONG_RANGE_VISION"
+    ],
+    "scope": "all DeployStyleAIUpdate units; all OBJECT_STATUS_DEPLOYED units; all units whose longest weapon range is >5% above vision",
+    "build": "C024B41021F7B76674AC4FB69456EC30FF1D876ED7E7749BC9B6B5C731CED0D5",
+    "guard_hold_fix_build": "F0FB03A975A79B6E9E71228E8821B1A6EB7DF21CA46A894A64F1626E8662A9B9",
+    "cached_vision_build": "7D75AF57DD084B2EA0E77B32DAB1184C41CE636B62ED68F586E446F7075D5F76",
+    "deploy_test": "completed 30-min Last Stand; no deploy-style commands logged (human was TT, no Nuke Cannon built); hold unvalidated; 3,219 commands, 134 zone failures (4.2%, failed median 15), interval 158 ms, path 124.7 ms/frame",
+    "next": "China skirmish with a Nuke Cannon for the hold/debug log; then combined3 Last Stand (T-116 on + cached vision)",
+    "combined_run": "completed; 327 T-116 path failures, 539 alt_leader successes; interval 133 ms vs 67 ms combined; visible effects pending user report",
+    "frame_note": "combined with T-116; not isolated",
+    "optimization_report": "docs/research/2026-11-22-minecraft-optimization-inspirations.md",
+    "report": "docs/research/2026-11-22-deploy-guard-long-range-vision.md"
+  },
+  "t118_path_occupant_cache": {
+    "date": "2026-11-22",
+    "status": "implemented; t116-path-cache.exe 63C2530F... built; no game run",
+    "build": "63C2530F35C2EF0EA27EBA8EBFBC32310C147378EBDC10D796D16079BAC9E565",
+    "change": "PathfindCellInfo caches the positioned Object pointer; PathfindCell::getPosObject; clearCellForDiameter uses it instead of findObjectByID",
+    "expected": "lower per-cell width-query cost; expansions/routes unchanged; verify ZH_PF_FRAME usec and l_ai",
+    "risk": "object lifetime must clear the cached pointer on removal/recycle",
+    "report": "docs/research/2026-11-22-pathfinder-occupant-cache.md"
+  },
+  "debugging_workflow": "docs/debugging.md",
   "next_actions": [
     {
-      "id": "T-025",
-      "title": "Re-confirm the profiles on a real late-game replay",
-      "owner": "unassigned"
+      "id": "T-128",
+      "title": "Reduce the live stuck-group symptom (blocked route / no visible obstacle)",
+      "owner": "Codex"
     },
     {
-      "id": "T-008",
-      "title": "Survey instrumentation/profiling tools",
-      "owner": "lead"
+      "id": "T-116",
+      "title": "Play the staged Last Stand build and isolate remaining stationary groups",
+      "owner": "Codex"
+    },
+    {
+      "id": "T-117",
+      "title": "Play the fixed hold and close the Last Stand integration",
+      "owner": "Codex"
+    },
+    {
+      "id": "T-025",
+      "title": "Re-confirm profiles on the checksum-checked diagnostic replay window",
+      "owner": "Codex"
     }
   ],
   "milestones": [
@@ -128,12 +334,20 @@
       "title": "Community-compatible transactional mod overlay",
       "status": "done",
       "doc": "docs/research/2026-11-18-mod-overlay-delivery.md"
+    },
+    {
+      "id": "M16",
+      "title": "Above 30 FPS in the 1,000-unit Last Stand heavy window",
+      "status": "done",
+      "doc": "docs/research/2026-11-25-last-stand-congestion-price.md"
     }
   ],
   "blockers": [
-    "ISSUE-0010: no compatible heavy replay for T-025; provide a late-game replay/save that loads in the rebuilt engine"
+    "ISSUE-0108: standard Last Stand playback diverges at frame 4500. A diagnostic fixture reproduces the slowdown with the recorded skirmish policies.",
+    "ISSUE-0145: the route-guard logic run recorded no D3D module. Graphical FPS comparisons from that build are unverified."
   ],
   "open_questions": [
+    "Does the Last Stand slowdown reproduce with a stock-recorded replay or a synthetic stock-data group-path harness on the same map?",
     "How much of the 1.78x total gain reproduces on a real late-game replay?",
     "Does SWR.net accept a chainloaded d3d8to9 (d3d8x.dll) in an online match? (unverified: no account/opponent; online stays stock per user decision)",
     "Which texture remains null after the retail exclusive-fullscreen device restore (root cause of ISSUE-0011)?",
@@ -162,6 +376,36 @@
     "workspace_logical_bytes_after": 18664035739,
     "retained_hash_checks": 396,
     "protected_metadata_records": 16477
+  },
+  "workspace_prune": {
+    "task": "T-114",
+    "date": "2026-11-20",
+    "removed_bytes": 19090138009,
+    "removed_paths": [
+      "build/alpha-engine-release",
+      "build/alpha-engine-release-final",
+      "build/t089-alpha-release",
+      "build/t095-alpha-release",
+      "build/t111-alpha-release",
+      "game/alpha-stock-v010",
+      "game/alpha-shockwave-v010"
+    ],
+    "retained_exes": [
+      "build/engines/alpha-engine.exe",
+      "build/engines/alpha-engine-final.exe",
+      "build/engines/t089-alpha.exe",
+      "build/engines/t095-alpha.exe",
+      "build/engines/t111-alpha.exe"
+    ],
+    "before_gib": 56.3,
+    "after_gib": 38.5,
+    "report": "docs/research/2026-11-20-workspace-prune.md"
+  },
+  "workspace_usage": {
+    "current_gib": 38.52,
+    "checked_at": "2026-11-20",
+    "report": "docs/research/2026-11-20-workspace-prune.md",
+    "policy": "docs/decisions/ADR-0025-no-fixed-workspace-cap.md"
   },
   "engineering_review": {
     "task": "T-078",
@@ -242,18 +486,20 @@
     "task": "T-080/T-081",
     "date": "2026-11-18",
     "version": "0.1.0-alpha.1",
-    "package_dir": "artifacts/2026-11-18-patcher-alpha/candidate-16/zh-patcher-0.1.0-alpha.1",
-    "package_zip": "artifacts/2026-11-18-patcher-alpha/candidate-16/zh-patcher-0.1.0-alpha.1.zip",
-    "package_zip_sha256": "CE34E2F0592CB08E3F0140BEA01DDFA365BFF683243282D4BB2536A1AD36E37F",
-    "engine_sha256": "FD3AD052290DE1E53CF132B2D4B8748AEAEB0C6AB8EDBCBC5AA2F8C1B7FA6BC4",
-    "engine_build": "build/t095-alpha-release/GeneralsMD/Release/generalszh.exe",
-    "engine_source": "build/t089-alpha-source",
-    "corresponding_source_sha256": "DE970AC39FCFB128558A9A581CC96E5B58325B42B1B2FC28B6EA8EB3F298424B",
+    "github_release": "https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases/tag/v0.1.0-alpha.1",
+    "github_download": "https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases/download/v0.1.0-alpha.1/zh-patcher-0.1.0-alpha.1.zip",
+    "package_dir": "artifacts/2026-11-18-patcher-alpha/candidate-17/zh-patcher-0.1.0-alpha.1",
+    "package_zip": "artifacts/2026-11-18-patcher-alpha/candidate-17/zh-patcher-0.1.0-alpha.1.zip",
+    "package_zip_sha256": "11EF4444DF45FCC950890943813FEC598F9205369DBC7CB353AD1F02106D354D",
+    "engine_sha256": "3EAED3D0FEB79CEF55EC44C443A1010E11AA1CB3B78FB678E16EE98BB2184B87",
+    "engine_build": "build/t102-alpha-release/GeneralsMD/Release/generalszh.exe",
+    "engine_source": "build/t102-alpha-source",
+    "corresponding_source_sha256": "9DA4E7600888D02DF5092B642F5208506864CFF04BF1287DA7DB9F5914BAAF53",
     "tests": {
       "production": "43 cases, 6 debug-only skips (candidate 16)",
       "debug": "43 cases, 1 production-only skip (T-095)",
-      "publication_privacy": "Candidate 16 PDB records are filename-only. Both ZIPs and all nested source members passed path and CRC checks.",
-      "full_copy_roundtrips": "Candidate 13 restored exact stock 1,914, stock system D3D 1,913, stock added archive 1,914, exact ShockWave 288, and ShockWave added archive 289 file hashes",
+      "publication_privacy": "Candidate 17 PDB records are filename-only. Both ZIPs and all nested source members passed path and CRC checks. Engine resources contain only the DPI manifest.",
+      "full_copy_roundtrips": "Candidate 17 installed, verified and restored all 1,914 stock files and 288 ShockWave files on disposable copies.",
       "guard_source": "67 compiled actual-source cases",
       "big_reader": "4 tests, including five invalid-bounds subcases",
       "mod_overlay": "Windows case collisions, exact-base gating, backup preflight, read-only metadata and interrupted recovery verified in candidate 10",

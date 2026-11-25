@@ -32,3 +32,19 @@ Each run folder must contain `manifest.md` with:
 - Prefer text logs; compress large traces.
 - Reference artifacts from docs by relative path so they remain findable.
 - Retention: keep artifacts that back a claim in a doc; delete superseded scratch runs.
+
+## Retention budget
+
+- One canonical `YYYY-MM-DD-<slug>/` per experiment. Extend its manifest for a rerun; do not
+  fork a second folder for a new task ID or a renamed run.
+- Keep the manifest, settings, CSVs, summaries, hashes and a few representative screenshots or
+  contact sheets. Do not keep full-resolution frame sequences, duplicate CSVs/PNGs or raw dumps
+  after the doc claim is supported.
+- Before creating a run folder, search `artifacts/*/manifest.md`, `docs/research/` and the task
+  ledger for reusable evidence. Repeat a run only when the new output is materially different;
+  record why and keep only the delta.
+- When deleting a superseded run, keep its manifest/hashes and update the doc that cited it.
+- Workspace budget: there is no fixed size cap. Run
+  `python tools/check-workspace-size.py` to see growth; it is informational. Build/copy/artifact
+  efficiency rules are in `AGENTS.md` §8 and
+  [ADR-0025](../docs/decisions/ADR-0025-no-fixed-workspace-cap.md).

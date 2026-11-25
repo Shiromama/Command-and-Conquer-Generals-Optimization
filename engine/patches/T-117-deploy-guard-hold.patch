@@ -1,0 +1,109 @@
+diff --git a/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/AIUpdate/DeployStyleAIUpdate.cpp b/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/AIUpdate/DeployStyleAIUpdate.cpp
+index e591f49..05917ef 100644
+--- a/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/AIUpdate/DeployStyleAIUpdate.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/AIUpdate/DeployStyleAIUpdate.cpp
+@@ -31,6 +31,7 @@
+ #include "Common/Player.h"
+ #include "Common/ThingFactory.h"
+ #include "Common/ThingTemplate.h"
++#include "Common/OptimizationPolicy.h"
+ 
+ #include "GameClient/Drawable.h"
+ #include "GameClient/InGameUI.h"
+@@ -45,6 +46,20 @@
+ #include "GameLogic/Module/ContainModule.h"
+ #include "GameLogic/Module/DeployStyleAIUpdate.h"
+ #include "GameLogic/Module/PhysicsUpdate.h"
++#include "GameLogic/AIGuard.h"
++
++// T-117: one definition for both the command filter and the update path. The top-level
++// state is AI_GUARD while the guard machine runs its inner states.
++static Bool zhDeployGuardHold()
++{
++	static const Bool hold = zh::parseBoolean(std::getenv("ZH_DEPLOY_GUARD_HOLD"), false);
++	return hold;
++}
++
++static Bool zhDeployTopLevelGuard(StateID state)
++{
++	return state == AI_GUARD || state == AI_GUARD_TUNNEL_NETWORK;
++}
+ 
+ 
+ //-------------------------------------------------------------------------------------------------
+@@ -75,6 +90,49 @@ void DeployStyleAIUpdate::aiDoCommand( const AICommandParms* parms )
+ 	if (!isAllowedToRespondToAiCommands(parms))
+ 		return;
+ 
++	// T-117: deployed deploy-style units hold their guard position. While the
++	// unit is in any guard state, ignore move commands. The guard attack states
++	// use the player's last command source, so source filtering is not enough.
++	// The player can press Stop/unguard and then move deliberately.
++	const bool guardHold = zhDeployGuardHold() != 0;
++	const StateID state = getCurrentStateID();
++	// getCurrentStateID() returns the top-level AI state (AI_GUARD), not the guard
++	// machine's inner state (AI_GUARD_INNER...); the earlier 5000..5005 range never
++	// matched and the hold was inert.
++	const bool inGuard = zhDeployTopLevelGuard(state) != 0;
++	static FILE *deployLog = [] {
++		const char *path = std::getenv("ZH_DEPLOY_DEBUG_LOG");
++		FILE *f = path ? std::fopen(path, "w") : nullptr;
++		if (f) {
++			std::setvbuf(f, nullptr, _IOFBF, 65536);
++			std::fprintf(f, "frame,obj,cmd,source,state,deploy_state,x,y\n");
++		}
++		return f;
++	}();
++	if (deployLog) {
++		const Coord3D *p = getObject()->getPosition();
++		std::fprintf(deployLog, "%u,%u,%d,%d,%d,%d,%.1f,%.1f\n",
++			TheGameLogic->getFrame(), getObject()->getID(), int(parms->m_cmd),
++			int(parms->m_cmdSource), int(state), int(m_state), p->x, p->y);
++	}
++	if (guardHold && inGuard)
++	{
++		switch (parms->m_cmd)
++		{
++			case AICMD_MOVE_TO_POSITION:
++			case AICMD_MOVE_TO_OBJECT:
++			case AICMD_TIGHTEN_TO_POSITION:
++			case AICMD_MOVE_TO_POSITION_AND_EVACUATE:
++			case AICMD_MOVE_TO_POSITION_AND_EVACUATE_AND_EXIT:
++			case AICMD_ATTACKMOVE_TO_POSITION:
++			case AICMD_MOVE_AWAY_FROM_UNIT:
++			case AICMD_MOVE_TO_POSITION_EVEN_IF_SLEEPING:
++				return;
++			default:
++				break;
++		}
++	}
++
+ 	/*
+ 	//Hack code to allow follow waypoint scripts to be converted to attack follow waypoint scripts
+ 	//for simple-test-map-purposes.
+@@ -101,8 +159,24 @@ UpdateSleepTime DeployStyleAIUpdate::update()
+ 	UnsignedInt now = TheGameLogic->getFrame();
+ 	const DeployStyleAIUpdateModuleData *data = getDeployStyleAIUpdateModuleData();
+ 
++	// T-117: the command filter stops new move orders, but the guard machine can still
++	// install an internal path. While the hold is active in guard, cancel that path and
++	// keep the unit in the deployed/ready-to-attack state.
++	const Bool holdGuard = zhDeployGuardHold() && zhDeployTopLevelGuard(getCurrentStateID());
++	if (holdGuard)
++	{
++		if (isWaitingForPath() || getPath())
++			setLocomotorGoalNone();
++		if (m_state == UNDEPLOY)
++			setMyState(DEPLOY, TRUE);
++		else if (m_state == READY_TO_MOVE)
++			setMyState(DEPLOY);
++		else if (m_state == ALIGNING_TURRETS)
++			setMyState(READY_TO_ATTACK);
++	}
++
+ 	//Are we attempting to move? If so we can't do it unless we are undeployed.
+-	Bool isTryingToMove = isWaitingForPath() || getPath();
++	Bool isTryingToMove = !holdGuard && (isWaitingForPath() || getPath());
+ 
+ 	//Are we trying to attack something. If so, we need to be in range before we can do so.
+ 	Bool isTryingToAttack = getStateMachine()->isInAttackState();

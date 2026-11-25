@@ -1,6 +1,6 @@
 # ISSUE-0010: No compatible heavy replay for late-game validation
 
-- **Status:** Open
+- **Status:** Workaround
 - **Severity:** Medium
 - **Date found:** 2026-11-15
 - **Task:** T-025
@@ -64,3 +64,9 @@ tools\benchmark-entity-heavy.ps1 -Runs 1 -ApplyProfile performance   # synthetic
 
 - 2026-11-15 — `-loadreplay` identified as the visual playback switch; heavy replay rejected
   as invalid; known-good replay validated with `-ignoreReplaySyncErrors`.
+
+- 2026-11-19 — [VERIFIED] The new ShockWave Last Stand replay is usable for
+  profiling in a diagnostic copy with matching game data and both recording
+  policies. [T-107](../research/2026-11-19-last-stand-slowdown.md) reproduced
+  7 FPS. Standard playback compatibility remains tracked in
+  [ISSUE-0108](ISSUE-0108-last-stand-replay-sync.md).

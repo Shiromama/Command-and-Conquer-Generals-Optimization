@@ -1,7 +1,7 @@
 # Pristine game baseline manifest
 # label: v104-gentool76-2026-11-14
 # created: 2026-11-14T22:44:15.1962309+08:00
-# source: C:\Program Files (x86)\R.G. Mechanics\Command and Conquer - Generals\Command and Conquer Generals Zero Hour
+# source: C:\Program Files (x86)\<vendor>\Command and Conquer - Generals\Command and Conquer Generals Zero Hour
 # format: sha256<TAB>bytes<TAB>relative-path
 D158934FA5FA75324211C670143D05B73C0911A4EFF0748C5E72FBF251784860	3345	.GenLauncherFolder\GenLauncherCfg.yaml
 26E945B9B37D8201D75D62DD0375051B4BD7919228D8221E474AEA2148F7FCC6	17303	.GenLauncherFolder\LauncherImages\Do you like GenLauncher\0

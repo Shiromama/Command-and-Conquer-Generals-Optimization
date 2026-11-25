@@ -1,4 +1,4 @@
-﻿# Patches
+# Patches
 
 Tracked patches against `vendor/GeneralsGameCode` @
 `0ff1220caf8dbcf254e4ad63ea8e907f22089624`. The vendor tree itself is gitignored; these files
@@ -22,6 +22,7 @@ are the durable record.
 | [`T-041-debris-hulk-budget.patch`](T-041-debris-hulk-budget.patch) | T-041 | `ZH_DEBRIS_PER_FRAME` / `ZH_HULK_PER_FRAME`; verified on a 1,000-unit nuke wipe (logic max 5.7 ms); optional fallback. Also carries test-only per-call creation timing (`ZH_OCL_LOG`). |
 | [`T-043-cosmetic-partition.patch`](T-043-cosmetic-partition.patch) | T-043/T-046 | `ZH_DEBRIS_BROADPHASE=1` (default): 3D bounding-sphere early-out keeps every collision, pair build 90.5 -> 4.0 ms max, frame p95 54.4 -> 46.0. `ZH_DEBRIS_PAIR_FILTER` (physics change, default off) and `ZH_COSMETIC_PARTITION` (blunt skip) are fallbacks. `ZH_PARTITION_LOG` timers. |
 | [`T-047-perf-diagnostics.patch`](T-047-perf-diagnostics.patch) | T-047 | Test-only `ZH_DEBRIS_LOG` draw/model logging and `ZH_PERF_SPLIT` client phase timers; used to prove debris render and to attribute the nuke-event spikes. |
+| [`T-117-deploy-guard-hold.patch`](T-117-deploy-guard-hold.patch) | T-117 | `ZH_DEPLOY_GUARD_HOLD` for deploy-style units: top-level guard-state detection, command filter, path cancel and forced deploy. Applies to a clean vendor index; focused Nuke Cannon control/candidate verified (`1EB00B96...`). Deployed avoidance/long-range vision are separate experiments. |
 
 ## Apply / revert
 

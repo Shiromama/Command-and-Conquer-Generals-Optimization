@@ -35,6 +35,11 @@ Build with:
 
 ## Patches
 
+[VERIFIED] T-111 adds the per-search formation clearance cache to the cumulative source patch.
+It runs in local Zero Hour matches. See the
+[Last Stand 1080p comparison](../docs/research/2026-11-19-last-stand-graphical-cache.md)
+and [focused Win32 fixture](../tools/test-group-clearance-memo.cpp).
+
 **Current engine:** apply [`patches/current-engine.patch`](patches/current-engine.patch), a single
 cumulative diff generated from the complete working tree. It is the only patch that reproduces
 the current build. The per-task patches below are **historical snapshots**, not a series: later
@@ -53,6 +58,7 @@ do not apply together. See [`../docs/issues/ISSUE-0015-engine-patch-series-not-r
 | [`patches/T-039-adapter-selection.patch`](patches/T-039-adapter-selection.patch) | `ZH_ADAPTER=<n>` / automatic adapter choice by DXGI dedicated VRAM, plus adapter-correct mode enumeration. No-op where D3D8 exposes one adapter. |
 | [`patches/T-041-debris-hulk-budget.patch`](patches/T-041-debris-hulk-budget.patch) | Opt-in `ZH_DEBRIS_PER_FRAME` / `ZH_HULK_PER_FRAME`: per-logic-frame budgets for cosmetic debris and dead-vehicle hulks (fallback; keeps fewer objects). Also carries test-only per-call debris creation timing for `ZH_OCL_LOG`. |
 | [`patches/T-047-perf-diagnostics.patch`](patches/T-047-perf-diagnostics.patch) | Test-only: `ZH_DEBRIS_LOG` draw/model logging in `W3DDebrisDraw`, and `ZH_PERF_SPLIT` client phase timers (drawables, terrain, display, particles, draw, display string, shell, in-game UI). |
+| [`patches/T-117-deploy-guard-hold.patch`](patches/T-117-deploy-guard-hold.patch) | Generic opt-in deploy-style guard hold. Applies to a clean vendor index; focused Nuke Cannon fixture verified. |
 | [`patches/T-043-cosmetic-partition.patch`](patches/T-043-cosmetic-partition.patch) | `ZH_DEBRIS_PAIR_FILTER=1` drops NO_COLLIDE and debris-debris pairs (physics change; off by default); `ZH_DEBRIS_BROADPHASE=1` (default) rejects pairs whose 3D bounding spheres do not overlap before hashing/allocation, keeping every collision (pair build 90.5 -> 4.0 ms max). `ZH_COSMETIC_PARTITION=1` remains a blunt fallback. Includes `ZH_PARTITION_LOG` timers. |
 
 Apply the current engine to a clean vendor checkout:

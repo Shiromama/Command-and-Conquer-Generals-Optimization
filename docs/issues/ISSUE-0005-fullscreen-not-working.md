@@ -14,7 +14,7 @@ launches in a window instead of covering the display.
 
 ## Reproduction / evidence
 
-- The real install is `C:\Program Files (x86)\R.G. Mechanics\...\Command and Conquer Generals Zero Hour`.
+- The real install is `C:\Program Files (x86)\<vendor>\...\Command and Conquer Generals Zero Hour`.
 - Its `d3d8.cfg` (GenTool config) contains `window=2`; GenTool's window presets are
   CORNER / CENTER / TOP / FULL, and only FULL is intended as borderless fullscreen.
   `[VERIFIED]` config text; mapping `[SOURCED]` GenTool docs.

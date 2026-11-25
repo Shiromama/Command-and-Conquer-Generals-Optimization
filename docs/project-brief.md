@@ -23,7 +23,8 @@ read-only baseline and mutable work copy exist under `game/` (1,914 files, SHA-2
 Fullscreen is fixed and verified (1920×1080 client area). The 1,000-unit harness is
 reproducible, and the portable `performance` profile (AA 0 + Low detail) improves median frame
 time **1.78x** (59.41 → 33.36 ms; 16.8 → 30.0 FPS) while keeping all units visible. Real
-late-game replay validation is blocked on a compatible replay (ISSUE-0010). Architecture
+late-game replay validation has a diagnostic ShockWave Last Stand fixture. [VERIFIED] See
+[the profiling report](research/2026-11-19-last-stand-slowdown.md) and [ISSUE-0108](issues/ISSUE-0108-last-stand-replay-sync.md) for standard playback compatibility. Architecture
 research (clean environment) shows ~16 ms of headroom at Low: 17.47 ms / 57 FPS uncapped.
 Shadow volumes are the High-detail cost; 120 px shadow LOD gives 20.30 ms with near shadows
 kept. [VERIFIED] The shadow-map prototype was benchmarked and rejected. The engine continues
