@@ -1933,7 +1933,7 @@ pre-release verification. The figures are from existing experiment records.
 covering the profiles, workloads, FPS limits, frame-time metrics, and phase timings.
 Header units are explicit and a comparison against the prior Git blob found all
 17 numeric result rows unchanged. Published the README, EXP-013, and the
-pre-release verification note in public commit `84750da`. `git push origin
+pre-release verification note in public commit `6bfba90`. `git push origin
 HEAD:refs/heads/main` succeeded from an isolated public clone. GitHub file reads
 on `main` returned all three expected blob SHAs. The public and local docs
 validators and `git diff --check` passed. See [ISSUE-0106](issues/ISSUE-0106-github-connector-write-denied.md).
@@ -1943,7 +1943,7 @@ validators and `git diff --check` passed. See [ISSUE-0106](issues/ISSUE-0106-git
 [VERIFIED] Added the windowed and borderless launch behavior and the 120-cycle
 ShockWave result from [ISSUE-0011](issues/ISSUE-0011-shockwave-alt-tab-null-texture-crash.md)
 to the README. `git push origin HEAD:refs/heads/main` published README-only commit
-`c2d1053` from the isolated public checkout. A GitHub read of `main:README.md`
+`e537abb` from the isolated public checkout. A GitHub read of `main:README.md`
 matched blob `ae803983e4009d51f956bd2e6ca2fcf0326898b2`.
 `python tools/check_docs.py` and `git diff --check` passed.
 
@@ -1951,7 +1951,7 @@ matched blob `ae803983e4009d51f956bd2e6ca2fcf0326898b2`.
 
 [VERIFIED] The README now describes the observed missing texture reference and
 labels the graphics reset explanation as inferred. `git push origin
-HEAD:refs/heads/main` published the README in `9c07bbc`. A GitHub read of
+HEAD:refs/heads/main` published the README in `b4cd998`. A GitHub read of
 `main:README.md` matched blob `931f8db5bf22cf21a84d3592d7b00c10e34f3cdc`.
 `python tools/check_docs.py` and `git diff --check` passed.
 
@@ -4581,9 +4581,9 @@ The public commit SHA is recorded in `docs/state.json`.
 
 ## 2026-11-26 - T-129: public snapshot pushed
 
-[VERIFIED] Public `main` advanced from `9c07bbc` to **`a2c92c8`** with 114 files changed. The
+[VERIFIED] Public `main` advanced from `b4cd998` to **`c4263ec`** with 114 files changed. The
 snapshot commit author/committer is the GitHub noreply identity; the local private history was not
-pushed. `git ls-remote` reports `a2c92c8` for `refs/heads/main`, the raw `README.md` returns the new
+pushed. `git ls-remote` reports `c4263ec` for `refs/heads/main`, the raw `README.md` returns the new
 Last Stand section, and `docs/assets/last-stand-heavy-window.svg` returns HTTP 200.
 
 [VERIFIED] The published tree was re-scanned after redaction: 402 tracked files, no binaries, no
@@ -4596,12 +4596,16 @@ local (the `artifacts/` folder is not committed).
 user-profile paths, no maintainer name or email, no repack vendor name, no credential or private-key
 pattern, and no game assets.
 
+## 2026-11-26 - T-129: public history rewritten to remove the personal author email
 
+[VERIFIED] All 18 reachable public commits were re-authored with the GitHub noreply identity. The
+file tree at HEAD was unchanged by the rewrite (same tree object), the release tag was moved to the
+rewritten release commit, and the GitHub release target was repointed to that commit. `GET /commits`
+now reports only noreply addresses, and `git ls-remote` resolves `main` and the tag to the rewritten
+objects.
 
+[VERIFIED] Public commit hashes in earlier docs entries were updated to the rewritten commits; no old
+hash is linked from this repository.
 
-
-
-
-
-
-
+[LIMITATION] GitHub still serves the old commit objects by direct SHA after a force-push. A hard purge
+(removing all dangling objects) requires repository deletion/recreation or a GitHub Support request.

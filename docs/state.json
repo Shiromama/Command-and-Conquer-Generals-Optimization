@@ -15,9 +15,9 @@
     "readme_quick_start_task": "T-102",
     "readme_findings_task": "T-103",
     "benchmark_table_legend_task": "T-104",
-    "benchmark_docs_public_commit": "84750daedfff2e3e07bbe1197df462f48634ef0d",
+    "benchmark_docs_public_commit": "6bfba9092b7e3bda51b4d9cab0480be0c88fa53f",
     "readme_alt_tab_task": "T-106",
-    "readme_alt_tab_public_commit": "9c07bbc3589b13f4c38c7baacbb80dc436b0d450",
+    "readme_alt_tab_public_commit": "b4cd9982452e3294177072074920db34508ca95d",
     "security_review": {
       "task": "T-094",
       "checked_source_sha256": "082e5e553f66ebe4e8dd3c1bab731fe8f23090670de6d494ab4fc3329a3aab8a",
@@ -31,11 +31,17 @@
     "source_publication": {
       "task": "T-129",
       "date": "2026-11-26",
-      "scope": "Tracked source and documentation snapshot on public main; public history preserved; workspace paths and the retail vendor path are redacted.",
+      "scope": "Tracked source and documentation snapshot on public main; public history rewritten to the GitHub noreply identity on 2026-11-26; workspace paths and the retail vendor path are redacted.",
       "readme": "README.md",
       "findings_note": "docs/research/2026-11-25-last-stand-congestion-price.md",
       "chart": "docs/assets/last-stand-heavy-window.svg",
-      "public_commit": "a2c92c8473189f8c787ca8c3e35e01d271834e8e"
+      "public_commit": "c4263ec0346885c5cd6f887915060dc36bdfce79",
+      "history_rewrite": {
+        "date": "2026-11-26",
+        "reason": "Re-authored the initial public commit with the GitHub noreply identity; all file trees unchanged; main and the release tag force-updated.",
+        "release_tag_commit": "79e45186e4f7c022dcf7348fed65c52e4e6160ef",
+        "all_reachable_commits_noreply": true
+      }
     }
   },
   "canonical_entrypoint": "AGENTS.md",

@@ -14,6 +14,6 @@ returned HTTP 403 (`Resource not accessible by integration`).
 
 [VERIFIED] Cloned public `main` in an isolated checkout and committed the three
 reviewed Markdown files. `git push origin HEAD:refs/heads/main` advanced the public
-branch to `84750da`. GitHub file reads on `main` returned the same README,
+branch to `6bfba90`. GitHub file reads on `main` returned the same README,
 experiment, and work-log blob SHAs as the public clone. The connector's write
 permissions were left as configured.
