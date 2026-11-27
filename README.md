@@ -76,11 +76,12 @@ and the visual trades remain source/playtest configurations.
 ### Why ShockWave and Last Stand?
 
 [VERIFIED] ShockWave is a **data-only mod on the stock Zero Hour 1.04 engine**: its
-`game.dat`/`Generals.exe` hash matches vanilla, so the benchmark exercises the same SAGE
-pathfinder and renderer. The mod adds a much larger rules/scenario surface than stock
+`game.dat`/`Generals.exe` hash matches vanilla, so it does not add a separate engine. The
+benchmark runs that mod data through the rebuilt SAGE engine, so engine changes can be attributed
+to our build rather than a mod fork. The mod adds a much larger rules/scenario surface than stock
 (1.29× objects, 2.05× weapons, 2.81× FX lists) and provides the dense 1,000-unit and nuke
-scenarios. That makes it a more realistic stress case than an idle tank spawn on an open map,
-while keeping the engine path unchanged.
+scenarios. The original slowdown report was a ShockWave 1.201 late-game skirmish, and compatible
+mod data is a project goal, so this is the workload that matters.
 [ShockWave inventory](docs/game-inventory-shockwave.md) ·
 [Stock-vs-mod design](docs/research/2026-11-20-stock-vs-mod-design.md) ·
 [Nuke benchmark](docs/experiments/EXP-008-shockwave-nuke-performance.md) ·
