@@ -4650,3 +4650,22 @@ of the public asset reproduced the hash. The release target and asset URLs match
 (`D07A61CC...6373`). Removed the generated 2.83 GiB `build/t130-alpha-release` tree, the 0.06 GiB
 alpha source, the 0.03 GiB patcher target and the 0.06 GiB `t130-engine-input` worktree. Candidate 18
 package artifacts are retained. Workspace is 40.94 GiB (informational, no fixed cap).
+
+## 2026-11-27 - T-131: benchmark fixture provenance and disclaimers
+
+[VERIFIED] The README now has a `Why ShockWave and Last Stand?` section explaining that ShockWave is a
+data-only mod on the stock Zero Hour 1.04 executable, adds a larger rules/scenario/FX surface, and
+supplies the dense 1,000-unit/nuke scenes; the Last Stand map is a 350x200 1-vs-7 community survival
+map exercised by a 29:23, 52,902-frame replay. It states that the 481-frame heavy window is a deliberate
+worst case, not an average.
+
+[SOURCED] ShockWave 1.201 is the community mod by SWR Productions (ModDB). Last Stand is the 8-player
+1-vs-7 map credited on C&C Labs to KhianVictory, matching the map's `Map.str` credit to Khian Victory
+D. Calderon (119,440-byte map, checksum `B44EACE8`, SHA-256 `20BAD834...ED41`).
+
+[VERIFIED] Added a disclaimer: no affiliation with or endorsement by EA, SWR Productions or the map
+author; no mod/map/replay or extracted game assets are redistributed; benchmark numbers are specific
+to ShockWave 1.201, Zero Hour 1.04, this map/replay and the stated settings; standard replay playback
+still diverges in places (ISSUE-0108) and mod compatibility is not certified. `python tools/check_docs.py`
+passes. The GitHub release notes were updated with the same credits and disclaimer; the release
+asset and digest are unchanged.

@@ -1,6 +1,6 @@
 # Session continuity
 
-Updated: 2026-11-26
+Updated: 2026-11-27
 Phase: P2
 
 ## Current focus
@@ -21,6 +21,12 @@ files; a native 1920x1080 startup smoke opened a responsive window. The package 
 gameplay trade, not the 66% 30.06 ms benchmark or the 29.01 ms visual-trade configuration. The
 release is live at `v0.1.0-alpha.2` on public commit `6061f56`; a fresh asset download reproduced the
 ZIP hash.
+
+T-131 added the `Why ShockWave and Last Stand?` README section: ShockWave is the SWR Productions
+data-only mod on stock 1.04; Last Stand is the 350x200 1-vs-7 map by KhianVictory (Khian Victory D.
+Calderon) from C&C Labs / `Map.str`. It documents why both fixtures were chosen and adds a
+no-affiliation/no-redistribution and version-specific benchmark disclaimer. No mod, map, replay or
+extracted game assets are included in the repository or patcher package.
 
 T-129 published a tracked source/docs snapshot on public `main` and refreshed the README with the
 Last Stand table, the heavy-window chart, the cost split, and the measured-and-rejected list. The

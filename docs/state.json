@@ -4,7 +4,7 @@
   "phase": "P2",
   "phase_name": "Profile and optimize the engine",
   "status": "Published Windows singleplayer alpha v0.1.0-alpha.2 (2026-11-26) ships the 33% ally-congestion pathfinding default (gameplay trade; the Last Stand benchmark replay resolves around frame 8,400) plus the current engine fixes and the 0.1.0-alpha.2 patcher. The 66% benchmark configuration (30.06 ms / 33.3 FPS) and the three visual trades (29.01 ms / 34.5 FPS) remain source/playtest options and are not in the package. The package uses system D3D8 and does not install d3d8to9. Packaged engine E728D945...1721; ZIP 7B4E442B...D5BD. The public source snapshot is T-129/T-130.",
-  "updated_at": "2026-11-26",
+  "updated_at": "2026-11-27",
   "publication_review": {
     "task": "T-091",
     "reviewed_commit": "7c7460b",

@@ -73,6 +73,44 @@ benchmark replay resolves around frame 8,400, before the heavy window, so the pa
 claim the 29.0 ms / 34.5 FPS result. The 33% value is the user-selected feel profile; the 66% value
 and the visual trades remain source/playtest configurations.
 
+### Why ShockWave and Last Stand?
+
+[VERIFIED] ShockWave is a **data-only mod on the stock Zero Hour 1.04 engine**: its
+`game.dat`/`Generals.exe` hash matches vanilla, so the benchmark exercises the same SAGE
+pathfinder and renderer. The mod adds a much larger rules/scenario surface than stock
+(1.29× objects, 2.05× weapons, 2.81× FX lists) and provides the dense 1,000-unit and nuke
+scenarios. That makes it a more realistic stress case than an idle tank spawn on an open map,
+while keeping the engine path unchanged.
+[ShockWave inventory](docs/game-inventory-shockwave.md) ·
+[Stock-vs-mod design](docs/research/2026-11-20-stock-vs-mod-design.md) ·
+[Nuke benchmark](docs/experiments/EXP-008-shockwave-nuke-performance.md) ·
+[ShockWave on ModDB](https://www.moddb.com/mods/cc-shockwave)
+
+[VERIFIED] The Last Stand benchmark uses a community **350×200, 1-vs-7 survival map** with
+narrow lanes and continuous scripted group orders, plus a 29:23 replay (1 human vs 7 Hard
+armies, 52,902 logic frames). It reproduces the user-reported slowdown: pathfinding was
+70.5% of the 300-frame window, and frames 16,919–17,399 are the 481-frame heavy window. It is
+a deliberate worst case, not an average frame rate.
+[Last Stand attribution](docs/research/2026-11-19-last-stand-slowdown.md) ·
+[Replay/map repair](docs/issues/ISSUE-0107-stress-replay-map-path.md) ·
+[Last Stand on C&C Labs](https://www.cnclabs.com/downloads/details/2668/)
+
+| Fixture | What it is | Credit / provenance | Redistributed? |
+|---|---|---|---|
+| ShockWave 1.201 | Data-only community mod on Zero Hour 1.04 | [SWR Productions](https://www.moddb.com/mods/cc-shockwave) | No |
+| Last Stand map | 350×200, 1-vs-7 community survival map | **KhianVictory** (Khian Victory D. Calderon), per the map's `Map.str` and [C&C Labs](https://www.cnclabs.com/downloads/details/2668/) | No |
+| Last Stand replay | 52,902-frame, 1 human vs 7 Hard | User-recorded; map checksum `B44EACE8`, map SHA-256 `20BAD834…ED41` | No |
+
+**Benchmark-content disclaimer.** Command & Conquer, Generals, Zero Hour, ShockWave and the
+Last Stand map are the property of their respective owners. This is an unofficial fan project
+and is not affiliated with or endorsed by EA, SWR Productions, or the map author. The repository
+and patcher package do not include the mod, map, replay, or extracted game assets; obtain them
+from their authors and follow their terms. These numbers are specific to ShockWave 1.201, Zero
+Hour 1.04, this map/replay and the stated settings; other versions, maps, and hardware will
+differ. The replay was recorded on a patched engine and standard playback still diverges in
+places ([ISSUE-0108](docs/issues/ISSUE-0108-last-stand-replay-sync.md)); mod compatibility is
+not certified.
+
 ### What moved the needle
 
 - **Route the game to the discrete GPU.** [VERIFIED] Native Direct3D 8 exposes only the Intel UHD
