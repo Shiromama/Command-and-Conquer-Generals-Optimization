@@ -11,6 +11,27 @@ This project was developed with assistance from Codex and OpenCode.
 The [`.opencode` session notes](.opencode/continuity.md) document development decisions,
 verification results, and remaining work.
 
+## What this project did
+
+Starting from the released Zero Hour engine source, the project rebuilt and profiled the engine and
+delivered a reversible Windows singleplayer alpha patcher. The main results are:
+
+- **Pathfinding and group movement:** a stable singleplayer heap, group path caching, corridor and
+  search limits, and measured search attribution. The 1,000-unit Last Stand heavy window moved from
+  36.8 ms / 27.2 FPS to 30.1 ms / 33.3 FPS with the opt-in 66% ally-congestion price, and 29.0 ms /
+  34.5 FPS with the three visual trades.
+- **Rendering and GPU path:** D3D8-to-D3D9 routing to the discrete GPU, fullscreen and borderless
+  handling, and draw/present attribution. The downloadable alpha uses system D3D8 and does not
+  install the wrapper.
+- **Correctness and compatibility:** guard-range acquisition, weapon FX and recoil, skirmish speed,
+  Alt+Tab stability, adapter selection, and transactional install/uninstall. The patcher round-trips
+  the stock 1.04 and ShockWave layouts.
+- **Evidence:** replay parity, frame attribution, alternating A/B runs, compiled regression cases,
+  issue and decision records, and a documented public alpha release.
+
+The repository keeps the engine patches, patcher source, benchmark tooling, and the evidence behind
+each claim. Start with [Quick start](#quick-start) or [Benchmark highlights](#benchmark-highlights).
+
 ## Quick start
 
 **Download.** [Windows patcher ZIP](https://github.com/Shiromama/Command-and-Conquer-Generals-Optimization/releases/download/v0.1.0-alpha.2/zh-patcher-0.1.0-alpha.2.zip)
